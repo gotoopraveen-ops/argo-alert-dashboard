@@ -172,6 +172,10 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
   <div class="panel" id="setPanel" style="display:none">
     <h2>Panel settings</h2>
     <div class="help" id="setWho" style="margin:-8px 0 12px"></div>
+    <div class="warn" id="setTooOld" style="display:none">
+      This panel's firmware cannot accept settings from here. Flash version
+      2.4.0 or later, then reopen this screen.
+    </div>
 
     <div class="row">
       <label>Names and labels &mdash; rename anything here</label>
@@ -385,7 +389,10 @@ function onMessage(topic, payload){
   else {
     try { dev[leaf] = JSON.parse(text); } catch(e) { return; }
     if (leaf === "state") dev.stateAt = Date.now();   // anchor for the local tick
-    if (leaf === "config" && $("setPanel").style.display === "block") loadSettingsForm();
+    if (leaf === "config"){
+      dev.configSeen = (dev.configSeen || 0) + 1;
+      if ($("setPanel").style.display === "block") loadSettingsForm();
+    }
   }
 
   refreshDeviceList();
@@ -623,6 +630,13 @@ function loadSettingsForm(){
   if (!dev || !dev.config){ $("setWho").textContent = "Waiting for the panel to report."; return; }
   var c = dev.config;
 
+  // Offering a Save button a panel will silently ignore is worse than offering
+  // none, so the controls go away when the firmware is too old to honour them.
+  var supported = (c.api || 0) >= 1;
+  $("setTooOld").style.display = supported ? "none" : "block";
+  $("pSave").disabled = !supported;
+  $("pSave").style.opacity = supported ? "1" : "0.35";
+
   $("setWho").textContent = "Editing " + (c.panelName || current) +
     (dev.status === "online" ? "" : " — panel offline, changes will not arrive");
 
@@ -660,6 +674,17 @@ function saveSettingsToPanel(){
   if (!dev || !dev.config || !client){ return; }
   var c = dev.config, sent = 0;
 
+  if ((c.api || 0) < 1){
+    $("pMsg").textContent = "This panel's firmware is too old to accept settings.";
+    $("pMsg").style.color = "var(--amber)";
+    return;
+  }
+  if (dev.status !== "online"){
+    $("pMsg").textContent = "Panel is offline. Nothing was sent.";
+    $("pMsg").style.color = "var(--amber)";
+    return;
+  }
+
   function push(key, value){
     client.publish("argo/" + cfg.tenant + "/" + current + "/cmd",
                    "cfg:" + key + "=" + value, {qos: 1});
@@ -682,10 +707,23 @@ function saveSettingsToPanel(){
     push("name" + i, v);
   }
 
-  $("pMsg").textContent = sent ? ("Sent " + sent + " change" + (sent === 1 ? "" : "s") + " to the panel")
-                               : "Nothing changed";
-  $("pMsg").style.color = sent ? "var(--green)" : "var(--muted)";
-  setTimeout(function(){ $("pMsg").textContent = ""; }, 4000);
+  if (!sent){
+    $("pMsg").textContent = "Nothing changed";
+    $("pMsg").style.color = "var(--muted)";
+    return;
+  }
+
+  // Wait for the panel to republish its settings and confirm it took them,
+  // rather than claiming success the moment the message leaves the browser.
+  var expected = dev.configSeen = (dev.configSeen || 0);
+  $("pMsg").textContent = "Sent " + sent + " change" + (sent === 1 ? "" : "s") + ", waiting for the panel";
+  $("pMsg").style.color = "var(--muted)";
+  setTimeout(function(){
+    var confirmed = (devices[current] || {}).configSeen > expected;
+    $("pMsg").textContent = confirmed ? "Saved on the panel" : "No confirmation from the panel";
+    $("pMsg").style.color = confirmed ? "var(--green)" : "var(--amber)";
+    setTimeout(function(){ $("pMsg").textContent = ""; }, 5000);
+  }, 3500);
 }
 
 $("setBtn").addEventListener("click", function(){
