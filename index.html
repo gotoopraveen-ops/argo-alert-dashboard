@@ -416,7 +416,12 @@ function connect(){
       ? "Broker rejected the username or password."
       : text;
     $("cfgMsg").style.color = "var(--red)";
-    $("cfgPanel").style.display = "block";
+    // Only a credential problem is worth putting a technical screen in front of
+    // a nurse. A dropped connection retries on its own and needs no one.
+    if (/Not authorized|Bad username/i.test(text)){
+      $("cfgBtn").hidden = false;
+      $("cfgPanel").style.display = "block";
+    }
   });
   client.on("message", onMessage);
 }
