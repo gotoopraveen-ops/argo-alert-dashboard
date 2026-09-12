@@ -37,6 +37,34 @@ body{margin:0;min-height:100vh;background:linear-gradient(180deg,var(--bg0),var(
   padding:11px 10px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px}
 .box.waiting{border-color:var(--red);background:linear-gradient(180deg,#24101a,#160c12)}
 .box.attending{border-color:var(--amber);background:linear-gradient(180deg,#241c0c,#161108)}
+.box.doctor{border-color:#7b5cff;background:linear-gradient(180deg,#181433,#0f0d21);
+  box-shadow:0 0 0 1px rgba(123,92,255,.28)}
+.box.emergency{border-color:#ff2d2d;background:linear-gradient(180deg,#320d14,#1c070c);
+  box-shadow:0 0 0 2px rgba(255,45,45,.45);animation:alarm .7s infinite}
+@keyframes alarm{0%,100%{box-shadow:0 0 0 2px rgba(255,45,45,.45)}
+  50%{box-shadow:0 0 0 4px rgba(255,45,45,.9)}}
+.box.doctor .lamp{background:radial-gradient(circle at 34% 30%,#cdbfff,#7b5cff 58%,#3a2a9a);
+  border-color:#4a3a9e;box-shadow:0 0 20px rgba(123,92,255,.7);animation:throb 1s infinite}
+.box.emergency .lamp{background:radial-gradient(circle at 34% 30%,#ffc0c0,#ff1111 55%,#7a0000);
+  border-color:#8d0d0d;box-shadow:0 0 26px rgba(255,25,25,.95);animation:throb .45s infinite}
+.box.doctor .bstate{color:#b0a0ff}
+.box.emergency .bstate{color:#ff7a7a}
+.sheet{position:fixed;inset:0;z-index:60;background:rgba(3,8,16,.78);display:none;
+  align-items:center;justify-content:center;padding:16px}
+.sheet.show{display:flex}
+.sheetInner{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);
+  border-radius:16px;padding:16px}
+.sheetTitle{font-size:16px;font-weight:900;margin-bottom:3px}
+.sheetSub{font-size:11px;color:var(--muted);margin-bottom:14px}
+.sheetBtn{width:100%;border:0;border-radius:11px;padding:13px;font-weight:900;font-size:13px;
+  margin-bottom:8px;cursor:pointer;color:#0b1220;background:linear-gradient(180deg,#e9eef5,#b9c4d3);
+  box-shadow:0 3px 0 #7b8798}
+.sheetBtn:active{transform:translateY(3px);box-shadow:none}
+.sheetBtn.doc{background:linear-gradient(180deg,#b3a0ff,#7b5cff);color:#fff;box-shadow:0 3px 0 #4a3a9e}
+.sheetBtn.eme{background:linear-gradient(180deg,#ff6a6a,#e01111);color:#fff;box-shadow:0 3px 0 #8e1111}
+.sheetBtn.amb{background:linear-gradient(180deg,#ffd267,#f0a413);box-shadow:0 3px 0 #9a6a08}
+.sheetBtn.ghost{background:#132540;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+.tapHint{font-size:9.5px;color:var(--muted);text-align:center;margin-top:9px}
 .btop{display:flex;width:100%;align-items:baseline;justify-content:space-between;gap:6px}
 .rname{font-size:14px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip{font-size:9.5px;color:var(--muted);font-weight:700;flex:none}
@@ -134,6 +162,19 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
   </div>
 
   <div class="grid" id="grid"></div>
+  <div class="tapHint">Tap any room to call a doctor or raise an emergency.</div>
+
+  <div class="sheet" id="sheet">
+    <div class="sheetInner">
+      <div class="sheetTitle" id="sheetTitle">Room</div>
+      <div class="sheetSub" id="sheetSub"></div>
+      <button class="sheetBtn doc"   id="sheetDoctor">CALL DOCTOR</button>
+      <button class="sheetBtn eme"   id="sheetEmergency">EMERGENCY</button>
+      <button class="sheetBtn amb"   id="sheetAccept" hidden>ACCEPT THIS CALL</button>
+      <button class="sheetBtn"       id="sheetClear" hidden>MARK AS DONE</button>
+      <button class="sheetBtn ghost" id="sheetCancel">Cancel</button>
+    </div>
+  </div>
 
   <div class="panel" style="margin-top:12px">
     <h2>Activity</h2>
@@ -289,8 +330,13 @@ function buildCards(n, names){
         '<button class="pb acc" disabled>ACCEPT</button>'+
         '<button class="pb res" disabled>CLEAR</button></div>';
     (function(index){
-      box.querySelector(".acc").addEventListener("click", function(){ send("accept", index); });
-      box.querySelector(".res").addEventListener("click", function(){ send("clear", index); });
+      box.querySelector(".acc").addEventListener("click", function(e){
+        e.stopPropagation(); send("accept", index);
+      });
+      box.querySelector(".res").addEventListener("click", function(e){
+        e.stopPropagation(); send("clear", index);
+      });
+      box.addEventListener("click", function(){ openSheet(index); });
     })(i);
     host.appendChild(box);
     cards.push({root:box, name:box.querySelector(".rname"), state:box.querySelector(".bstate"),
@@ -323,10 +369,21 @@ function render(){
   for (var i = 0; i < n && i < st.ch.length; i++){
     var ch = st.ch[i], c = cards[i];
     var waiting = ch.s === 1, attending = ch.s === 2;
+    var kind = ch.c || 0;                 // 0 patient, 1 doctor, 2 emergency
     if (waiting) active++;
 
-    c.root.className = "box" + (waiting ? " waiting" : attending ? " attending" : "");
-    c.state.textContent = waiting ? "CALL ACTIVE" : attending ? "ATTENDING" : "NORMAL";
+    var cls = "box" + (waiting ? " waiting" : attending ? " attending" : "");
+    if (ch.s !== 0 && kind === 1) cls += " doctor";
+    if (ch.s !== 0 && kind === 2) cls += " emergency";
+    c.root.className = cls;
+
+    c.state.textContent = ch.s === 0 ? "NORMAL"
+      : kind === 2 ? (attending ? "EMERGENCY · ATTENDING" : "EMERGENCY")
+      : kind === 1 ? (attending ? "DOCTOR · ATTENDING" : "DOCTOR CALL")
+      : (attending ? "ATTENDING" : "CALL ACTIVE");
+
+    // Urgency floats to the top, so an emergency is never below the fold.
+    c.root.style.order = ch.s === 0 ? 600 : ((2 - kind) * 2 + (waiting ? 0 : 1)) * 100 + i;
     c.time.hidden = ch.s === 0;
     if (ch.s !== 0) c.time.textContent = fmt(ch.r);
     c.sub.textContent = ch.s === 0 ? "Ready"
@@ -349,6 +406,8 @@ function addEvent(id, text){
   if (feed.firstChild && feed.firstChild.className === "help") feed.textContent = "";
 
   var label = EV[e.type] || ["Event","ok"];
+  if (e.type === 1 && e.cls === 2) label = ["EMERGENCY","call"];
+  else if (e.type === 1 && e.cls === 1) label = ["Doctor call","rem"];
   var row = document.createElement("div");
   row.className = "fr";
   var left = document.createElement("span");
@@ -385,6 +444,44 @@ function freshness(){
   if (stale) el.textContent = "no update for " + text.replace(" ago","");
 }
 setInterval(freshness, 1000);
+
+/* ----------------------------------------------------------------- sheet -- */
+var sheetChannel = -1;
+
+function openSheet(index){
+  var dev = devices[current];
+  if (!dev || !dev.state) return;
+  sheetChannel = index;
+  var ch = dev.state.ch[index] || {s:0, c:0};
+  var names = dev.config && dev.config.names;
+
+  $("sheetTitle").textContent = (names && names[index]) || ("Room " + (index + 1));
+  $("sheetSub").textContent = dev.status !== "online"
+    ? "Panel offline. Commands will not reach it."
+    : ch.s === 0 ? "No call open on this room"
+    : ((ch.c === 2 ? "Emergency" : ch.c === 1 ? "Doctor call" : "Patient call") +
+       (ch.s === 2 ? ", being attended" : ", waiting"));
+
+  var live = dev.status === "online";
+  $("sheetDoctor").disabled = !live;
+  $("sheetEmergency").disabled = !live;
+  $("sheetAccept").hidden = ch.s !== 1 || !live;
+  $("sheetClear").hidden  = ch.s === 0 || !live;
+  $("sheet").classList.add("show");
+}
+function closeSheet(){ $("sheet").classList.remove("show"); sheetChannel = -1; }
+function sheetSend(action){
+  if (sheetChannel < 0) return;
+  var index = sheetChannel;
+  closeSheet();
+  send(action, index);
+}
+$("sheet").addEventListener("click", function(e){ if (e.target === this) closeSheet(); });
+$("sheetCancel").addEventListener("click", closeSheet);
+$("sheetDoctor").addEventListener("click", function(){ sheetSend("doctor"); });
+$("sheetEmergency").addEventListener("click", function(){ sheetSend("emergency"); });
+$("sheetAccept").addEventListener("click", function(){ sheetSend("accept"); });
+$("sheetClear").addEventListener("click", function(){ sheetSend("clear"); });
 
 /* -------------------------------------------------------------- commands -- */
 function send(action, channel){
