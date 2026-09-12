@@ -135,7 +135,7 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
   </div>
   <select id="devicePick" class="hide" style="width:auto;flex:none;padding:8px"></select>
   <button class="hb grey" id="setBtn">Settings</button>
-  <button class="hb grey" id="cfgBtn">Broker</button>
+  <button class="hb grey" id="cfgBtn" hidden>Broker</button>
 </div>
 <div class="conn">
   <span class="cdot" id="brokerDot"></span><span id="brokerText">Broker: idle</span>
@@ -147,7 +147,7 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
 
 <div class="wrap">
 
-  <div class="panel" id="cfgPanel">
+  <div class="panel" id="cfgPanel" style="display:none">
     <h2>Broker connection</h2>
     <div class="row">
       <label for="host">WebSocket host</label>
@@ -314,6 +314,30 @@ var DEFAULTS = {
   tenant: "demo", device: "+"
 };
 
+/* This page is served publicly, so the broker credential is deliberately NOT in
+   it. The app passes it in the address fragment, which browsers never send to a
+   server and which is wiped here as soon as it is read. Anyone who has the app
+   is in; anyone who merely finds the link is not. */
+function credentialsFromLink(){
+  var raw = location.hash ? location.hash.substring(1) : "";
+  if (!raw) return null;
+
+  var parts = new URLSearchParams(raw);
+  if (!parts.get("u")) return null;
+
+  var found = {
+    user: parts.get("u") || "",
+    pass: parts.get("p") || "",
+    tenant: parts.get("t") || DEFAULTS.tenant,
+    host: parts.get("h") || DEFAULTS.host
+  };
+
+  // Do not leave it sitting in the address bar or the back history.
+  try { history.replaceState(null, "", location.pathname + location.search); }
+  catch(e){ location.hash = ""; }
+  return found;
+}
+
 var client = null, cfg = null, current = null;
 var lastSeenAt = 0;      // when this device last said anything at all
 var devices = {};          // deviceId -> {state, config, status}
@@ -326,6 +350,11 @@ function loadCfg(){
   var saved = {};
   try { saved = JSON.parse(localStorage.getItem("argoBroker") || "{}"); } catch(e){}
   cfg = Object.assign({}, DEFAULTS, saved);
+
+  // A credential handed over in the link wins over anything remembered here,
+  // so reinstalling the app with new details always takes effect.
+  var fromLink = credentialsFromLink();
+  if (fromLink) cfg = Object.assign(cfg, fromLink);
   $("host").value = cfg.host; $("port").value = cfg.port; $("path").value = cfg.path;
   $("user").value = cfg.user; $("pass").value = cfg.pass;
   $("tenant").value = cfg.tenant; $("device").value = cfg.device;
@@ -885,11 +914,34 @@ $("cfgBtn").addEventListener("click", function(){
   var p = $("cfgPanel");
   p.style.display = (p.style.display === "none") ? "block" : "none";
 });
+
+/* Still reachable when something is wrong, without being on screen for staff:
+   add ?broker to the address, or tap the connection line five times. */
+if (location.search.indexOf("broker") >= 0){
+  $("cfgBtn").hidden = false;
+  $("cfgPanel").style.display = "block";
+}
+(function(){
+  var taps = 0, last = 0;
+  document.querySelector(".conn").addEventListener("click", function(){
+    var now = Date.now();
+    taps = (now - last < 800) ? taps + 1 : 1;
+    last = now;
+    if (taps >= 5){
+      taps = 0;
+      $("cfgBtn").hidden = false;
+      $("cfgPanel").style.display = "block";
+    }
+  });
+})();
 $("connectBtn").addEventListener("click", connect);
 $("devicePick").addEventListener("change", function(){ current = this.value; cards = []; render(); });
 
 loadCfg();
-if (cfg.user) connect();          // straight in on a return visit
+// Opened from the app, or returning to a browser that has been here before,
+// there is nothing to ask for. Otherwise the broker screen appears.
+if (cfg.user) connect();
+else { $("cfgBtn").hidden = false; $("cfgPanel").style.display = "block"; }
 </script>
 </body>
 </html>
