@@ -64,6 +64,9 @@ body{margin:0;min-height:100vh;background:linear-gradient(180deg,var(--bg0),var(
 .sheetBtn.eme{background:linear-gradient(180deg,#ff6a6a,#e01111);color:#fff;box-shadow:0 3px 0 #8e1111}
 .sheetBtn.amb{background:linear-gradient(180deg,#ffd267,#f0a413);box-shadow:0 3px 0 #9a6a08}
 .sheetBtn.ghost{background:#132540;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+.names{display:grid;gap:7px}
+.nrow{display:grid;grid-template-columns:72px 1fr;gap:8px;align-items:center}
+.nlbl{font-size:11px;color:var(--muted);font-weight:800}
 .tapHint{font-size:9.5px;color:var(--muted);text-align:center;margin-top:9px}
 .staffBar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:grid;
   grid-template-columns:1fr 1fr;gap:8px;max-width:1100px;margin:0 auto;
@@ -129,6 +132,7 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
     <div class="btag" id="deviceLabel">not connected</div>
   </div>
   <select id="devicePick" class="hide" style="width:auto;flex:none;padding:8px"></select>
+  <button class="hb grey" id="setBtn">Settings</button>
   <button class="hb grey" id="cfgBtn">Broker</button>
 </div>
 <div class="conn">
@@ -163,6 +167,73 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
     <div class="help" style="margin-bottom:12px">Device filter accepts + to watch every panel belonging to this tenant.</div>
     <button class="act" id="connectBtn">CONNECT</button>
     <div class="help" id="cfgMsg" style="text-align:center;min-height:14px;margin-top:9px"></div>
+  </div>
+
+  <div class="panel" id="setPanel" style="display:none">
+    <h2>Panel settings</h2>
+    <div class="help" id="setWho" style="margin:-8px 0 12px"></div>
+
+    <div class="row">
+      <label>Names and labels &mdash; rename anything here</label>
+      <div class="names">
+        <div class="nrow"><span class="nlbl">System</span><input type="text" id="pSystem" maxlength="24"></div>
+        <div class="nrow"><span class="nlbl">Panel</span><input type="text" id="pPanel" maxlength="24"></div>
+        <div class="nrow"><span class="nlbl">Room word</span><input type="text" id="pRoomWord" maxlength="12"></div>
+        <div class="nrow"><span class="nlbl">Doctor</span><input type="text" id="pDoctor" maxlength="24"></div>
+        <div class="nrow"><span class="nlbl">Emergency</span><input type="text" id="pEmergency" maxlength="24"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>Room names</label>
+      <div class="names" id="pNames"></div>
+    </div>
+
+    <div class="row">
+      <label for="pChannels">Number of channels</label>
+      <select id="pChannels"></select>
+    </div>
+
+    <div class="two">
+      <div class="row"><label for="pTimeout">Call timeout (min)</label>
+        <input type="number" id="pTimeout" min="1" max="1440" inputmode="numeric"></div>
+      <div class="row"><label for="pInterval">Reminder every (min)</label>
+        <input type="number" id="pInterval" min="1" max="1440" inputmode="numeric"></div>
+    </div>
+
+    <div class="row">
+      <label for="pReminders">Number of reminders</label>
+      <input type="number" id="pReminders" min="0" max="20" inputmode="numeric">
+    </div>
+
+    <div class="two">
+      <div class="row"><label for="pCallTone">Call tone</label><select id="pCallTone"></select></div>
+      <div class="row"><label for="pRemTone">Reminder tone</label><select id="pRemTone"></select></div>
+    </div>
+
+    <div class="row">
+      <label for="pBuzzer">Panel buzzer</label>
+      <select id="pBuzzer">
+        <option value="1">Enabled</option>
+        <option value="0">Night mode (silent)</option>
+      </select>
+    </div>
+
+    <div class="two">
+      <div class="row"><label for="pLayout">Panel screen layout</label>
+        <select id="pLayout">
+          <option value="0">Auto</option><option value="1">Large</option>
+          <option value="2">Grid</option><option value="3">Compact</option>
+        </select></div>
+      <div class="row"><label for="pOrder">Card order</label>
+        <select id="pOrder">
+          <option value="0">Active calls first</option>
+          <option value="1">Channel order</option>
+        </select></div>
+    </div>
+
+    <button class="act" id="pSave">SAVE TO PANEL</button>
+    <div class="help" id="pMsg" style="text-align:center;min-height:14px;margin-top:9px"></div>
   </div>
 
   <div class="warn" id="staleWarn" style="display:none">
@@ -314,6 +385,7 @@ function onMessage(topic, payload){
   else {
     try { dev[leaf] = JSON.parse(text); } catch(e) { return; }
     if (leaf === "state") dev.stateAt = Date.now();   // anchor for the local tick
+    if (leaf === "config" && $("setPanel").style.display === "block") loadSettingsForm();
   }
 
   refreshDeviceList();
@@ -521,6 +593,108 @@ function freshness(){
   if (stale) el.textContent = "no update for " + text.replace(" ago","");
 }
 setInterval(freshness, 1000);
+
+/* -------------------------------------------------------- panel settings -- */
+var TONE_NAMES = ["Classic ding-dong","Double ding","High-low chime","Triple chime",
+  "Soft bell","Two-tone alert","Rising alert","Falling alert","Hospital chime","Urgent alert"];
+var SETTING_FIELDS = {
+  systemName:"pSystem", panelName:"pPanel", roomWord:"pRoomWord",
+  doctorLabel:"pDoctor", emergencyLabel:"pEmergency",
+  n:"pChannels", timeout:"pTimeout", interval:"pInterval", reminders:"pReminders",
+  callRingtone:"pCallTone", reminderRingtone:"pRemTone", buzzerEnabled:"pBuzzer",
+  viewLayout:"pLayout", cardOrder:"pOrder"
+};
+// The panel names some settings differently from the command it accepts.
+var SETTING_KEYS = {n:"channelCount", timeout:"callTimeout", interval:"reminderInterval",
+                    reminders:"reminderCount"};
+
+function fillOptions(el, count, labeller, offset){
+  offset = offset || 0;
+  el.innerHTML = "";
+  for (var i = 0; i < count; i++){
+    var o = document.createElement("option");
+    o.value = i + offset; o.textContent = labeller(i);
+    el.appendChild(o);
+  }
+}
+
+function loadSettingsForm(){
+  var dev = devices[current];
+  if (!dev || !dev.config){ $("setWho").textContent = "Waiting for the panel to report."; return; }
+  var c = dev.config;
+
+  $("setWho").textContent = "Editing " + (c.panelName || current) +
+    (dev.status === "online" ? "" : " — panel offline, changes will not arrive");
+
+  fillOptions($("pChannels"), 15, function(i){ return (i+1) + (i === 0 ? " channel" : " channels"); }, 1);
+  fillOptions($("pCallTone"), TONE_NAMES.length, function(i){ return (i+1) + ". " + TONE_NAMES[i]; });
+  fillOptions($("pRemTone"),  TONE_NAMES.length, function(i){ return (i+1) + ". " + TONE_NAMES[i]; });
+
+  for (var key in SETTING_FIELDS){
+    var el = $(SETTING_FIELDS[key]);
+    if (!el || document.activeElement === el) continue;
+    if (c[key] !== undefined) el.value = c[key];
+  }
+
+  var host = $("pNames");
+  host.innerHTML = "";
+  for (var i = 0; i < (c.n || 0); i++){
+    (function(index){
+      var row = document.createElement("div"); row.className = "nrow";
+      var lbl = document.createElement("span"); lbl.className = "nlbl";
+      lbl.textContent = "CH " + (index + 1);
+      var input = document.createElement("input");
+      input.type = "text"; input.maxLength = 16; input.id = "pName" + index;
+      input.placeholder = (c.roomWord || "Room") + " " + (index + 1);
+      input.value = (c.names && c.names[index]) || "";
+      row.appendChild(lbl); row.appendChild(input);
+      host.appendChild(row);
+    })(i);
+  }
+}
+
+/* Only changed values are sent, one command each, so a settings visit is not
+   eighteen flash writes on the panel. */
+function saveSettingsToPanel(){
+  var dev = devices[current];
+  if (!dev || !dev.config || !client){ return; }
+  var c = dev.config, sent = 0;
+
+  function push(key, value){
+    client.publish("argo/" + cfg.tenant + "/" + current + "/cmd",
+                   "cfg:" + key + "=" + value, {qos: 1});
+    sent++;
+  }
+
+  for (var field in SETTING_FIELDS){
+    var el = $(SETTING_FIELDS[field]);
+    if (!el) continue;
+    var value = el.value;
+    if (String(c[field]) === String(value)) continue;
+    push(SETTING_KEYS[field] || field, value);
+  }
+
+  for (var i = 0; i < (c.n || 0); i++){
+    var el2 = $("pName" + i);
+    if (!el2) continue;
+    var v = el2.value.trim();
+    if (v === ((c.names && c.names[i]) || "")) continue;
+    push("name" + i, v);
+  }
+
+  $("pMsg").textContent = sent ? ("Sent " + sent + " change" + (sent === 1 ? "" : "s") + " to the panel")
+                               : "Nothing changed";
+  $("pMsg").style.color = sent ? "var(--green)" : "var(--muted)";
+  setTimeout(function(){ $("pMsg").textContent = ""; }, 4000);
+}
+
+$("setBtn").addEventListener("click", function(){
+  var p = $("setPanel");
+  var showing = p.style.display === "block";
+  p.style.display = showing ? "none" : "block";
+  if (!showing) loadSettingsForm();
+});
+$("pSave").addEventListener("click", saveSettingsToPanel);
 
 /* ------------------------------------------------------------ room picker -- */
 var pickerClass = 0;
