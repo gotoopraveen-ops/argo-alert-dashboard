@@ -125,7 +125,7 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
 
 <div class="hdr">
   <div class="brand">
-    <div class="bname">ARGO <i>ALERT</i> &mdash; REMOTE</div>
+    <div class="bname" id="brandName">&nbsp;</div>
     <div class="btag" id="deviceLabel">not connected</div>
   </div>
   <select id="devicePick" class="hide" style="width:auto;flex:none;padding:8px"></select>
@@ -171,17 +171,17 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
 
   <div class="stats">
     <div class="st red"><div class="stv" id="sActive">0</div><div class="stl">ACTIVE</div></div>
-    <div class="st"><div class="stv" id="sRooms">0</div><div class="stl">ROOMS</div></div>
-    <div class="st"><div class="stv" id="sUp">--</div><div class="stl">UPTIME</div></div>
-    <div class="st"><div class="stv" id="sRssi">--</div><div class="stl">SIGNAL</div></div>
+    <div class="st"><div class="stv" id="sCalls">0</div><div class="stl">CALLS</div></div>
+    <div class="st"><div class="stv" id="sRem">0</div><div class="stl">REMINDERS</div></div>
+    <div class="st"><div class="stv" id="sRooms">0</div><div class="stl">CHANNELS</div></div>
   </div>
 
   <div class="grid" id="grid"></div>
   <div class="tapHint">Tap any room card for actions on that room.</div>
 
   <div class="staffBar">
-    <button class="staffBtn doc" id="barDoctor">CALL DOCTOR</button>
-    <button class="staffBtn eme" id="barEmergency">EMERGENCY</button>
+    <button class="staffBtn doc" id="barDoctor">&nbsp;</button>
+    <button class="staffBtn eme" id="barEmergency">&nbsp;</button>
   </div>
 
   <div class="sheet" id="picker">
@@ -197,8 +197,8 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
     <div class="sheetInner">
       <div class="sheetTitle" id="sheetTitle">Room</div>
       <div class="sheetSub" id="sheetSub"></div>
-      <button class="sheetBtn doc"   id="sheetDoctor">CALL DOCTOR</button>
-      <button class="sheetBtn eme"   id="sheetEmergency">EMERGENCY</button>
+      <button class="sheetBtn doc"   id="sheetDoctor">&nbsp;</button>
+      <button class="sheetBtn eme"   id="sheetEmergency">&nbsp;</button>
       <button class="sheetBtn amb"   id="sheetAccept" hidden>ACCEPT THIS CALL</button>
       <button class="sheetBtn"       id="sheetClear" hidden>MARK AS DONE</button>
       <button class="sheetBtn ghost" id="sheetCancel">Cancel</button>
@@ -313,6 +313,7 @@ function onMessage(topic, payload){
   else if (leaf === "event") { addEvent(id, text); return; }
   else {
     try { dev[leaf] = JSON.parse(text); } catch(e) { return; }
+    if (leaf === "state") dev.stateAt = Date.now();   // anchor for the local tick
   }
 
   refreshDeviceList();
@@ -337,6 +338,34 @@ function refreshDeviceList(){
 }
 
 /* --------------------------------------------------------------- render -- */
+/* Labels come from the panel, so renaming anything there renames it here too.
+   Until a panel reports in, fall back to something neutral. */
+function labels(){
+  var dev = devices[current];
+  var c = (dev && dev.config) || {};
+  return {
+    system:    c.systemName     || "ARGO ALERT",
+    panel:     c.panelName      || (current || ""),
+    room:      c.roomWord       || "Room",
+    doctor:    c.doctorLabel    || "CALL DOCTOR",
+    emergency: c.emergencyLabel || "EMERGENCY"
+  };
+}
+function roomName(index){
+  var dev = devices[current];
+  var names = dev && dev.config && dev.config.names;
+  return (names && names[index]) || (labels().room + " " + (index + 1));
+}
+function applyLabels(){
+  var L = labels();
+  document.title = L.system + " — remote";
+  $("brandName").textContent      = L.system + " — REMOTE";
+  $("barDoctor").textContent      = L.doctor;
+  $("barEmergency").textContent   = L.emergency;
+  $("sheetDoctor").textContent    = L.doctor;
+  $("sheetEmergency").textContent = L.emergency;
+}
+
 function fmt(seconds){
   seconds = Math.max(0, Math.floor(seconds));
   var m = Math.floor(seconds/60), s = seconds%60;
@@ -376,6 +405,21 @@ function buildCards(n, names){
   for (var j = 0; j < n; j++) cards[j].name.textContent = (names && names[j]) || ("Room " + (j+1));
 }
 
+/* The panel only speaks when something changes, so between messages the
+   countdown would sit frozen and look broken. Tick it forward locally from the
+   last figure it sent. */
+function tickTimers(){
+  var dev = devices[current];
+  if (!dev || !dev.state || !dev.stateAt) return;
+  var elapsed = (Date.now() - dev.stateAt) / 1000;
+  for (var i = 0; i < cards.length && i < dev.state.ch.length; i++){
+    var ch = dev.state.ch[i];
+    if (ch.s === 0) continue;
+    cards[i].time.textContent = fmt(Math.max(0, ch.r - elapsed));
+  }
+}
+setInterval(tickTimers, 1000);
+
 function render(){
   var dev = devices[current];
   if (!dev) return;
@@ -386,7 +430,9 @@ function render(){
   $("barDoctor").disabled = !online;
   $("barEmergency").disabled = !online;
   lastSeenAt = dev.seenAt || 0;
-  $("deviceLabel").textContent = current + (dev.state ? " · firmware " + dev.state.fw : "");
+  applyLabels();
+  $("deviceLabel").textContent = labels().panel +
+    (dev.state ? " · firmware " + dev.state.fw : "");
 
   var st = dev.state, conf = dev.config;
   if (!st) return;
@@ -394,7 +440,7 @@ function render(){
   var n = st.n || (st.ch ? st.ch.length : 0);
   var names = conf && conf.names;
   if (cardCount !== n) buildCards(n, names);
-  else if (names) for (var k = 0; k < cards.length; k++) cards[k].name.textContent = names[k] || ("Room "+(k+1));
+  else for (var k = 0; k < cards.length; k++) cards[k].name.textContent = roomName(k);
 
   var active = 0;
   for (var i = 0; i < n && i < st.ch.length; i++){
@@ -426,8 +472,8 @@ function render(){
 
   $("sActive").textContent = active;
   $("sRooms").textContent  = n;
-  $("sUp").textContent     = st.up > 3600 ? Math.floor(st.up/3600)+"h" : Math.floor(st.up/60)+"m";
-  $("sRssi").textContent   = st.rssi ? st.rssi + "dB" : "--";
+  $("sCalls").textContent  = st.calls === undefined ? "--" : st.calls;
+  $("sRem").textContent    = st.rem  === undefined ? "--" : st.rem;
 }
 
 function addEvent(id, text){
@@ -443,7 +489,7 @@ function addEvent(id, text){
   row.className = "fr";
   var left = document.createElement("span");
   left.innerHTML = '<b class="' + label[1] + '">' + label[0] + '</b> &middot; ' +
-                   (e.name || ("Room " + (e.ch + 1))) +
+                   (e.name || roomName(e.ch)) +
                    (e.src === 1 ? ' <span style="opacity:.6">(remote)</span>' : '');
   var right = document.createElement("span");
   right.className = "w";
@@ -483,7 +529,7 @@ function openPicker(cls){
   var dev = devices[current];
   if (!dev || !dev.state) return;
   pickerClass = cls;
-  $("pickerTitle").textContent = cls === 2 ? "Emergency" : "Call doctor";
+  $("pickerTitle").textContent = cls === 2 ? labels().emergency : labels().doctor;
 
   var names = dev.config && dev.config.names;
   var count = dev.state.n || dev.state.ch.length;
@@ -493,7 +539,7 @@ function openPicker(cls){
     (function(index){
       var b = document.createElement("button");
       b.className = "pickBtn";
-      b.textContent = (names && names[index]) || ("Room " + (index + 1));
+      b.textContent = roomName(index);
       b.addEventListener("click", function(){
         $("picker").classList.remove("show");
         send(pickerClass === 2 ? "emergency" : "doctor", index);
@@ -521,7 +567,7 @@ function openSheet(index){
   var ch = dev.state.ch[index] || {s:0, c:0};
   var names = dev.config && dev.config.names;
 
-  $("sheetTitle").textContent = (names && names[index]) || ("Room " + (index + 1));
+  $("sheetTitle").textContent = roomName(index);
   $("sheetSub").textContent = dev.status !== "online"
     ? "Panel offline. Commands will not reach it."
     : ch.s === 0 ? "No call open on this room"
