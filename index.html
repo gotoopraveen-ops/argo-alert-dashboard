@@ -25,7 +25,7 @@ body{margin:0;min-height:100vh;background:linear-gradient(180deg,var(--bg0),var(
 .conn{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--muted);padding:7px 14px 0;flex-wrap:wrap}
 .cdot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
 .cdot.ok{background:var(--green)}.cdot.bad{background:var(--red)}
-.wrap{max-width:1100px;margin:0 auto;padding:11px 11px 40px}
+.wrap{max-width:1100px;margin:0 auto;padding:11px 11px 104px}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:11px}
 .st{border-radius:11px;padding:9px 4px;text-align:center;border:1px solid var(--line);background:var(--card)}
 .st.red{border-color:#5a1f1f;background:linear-gradient(180deg,#1e0f14,#140b10)}
@@ -65,6 +65,21 @@ body{margin:0;min-height:100vh;background:linear-gradient(180deg,var(--bg0),var(
 .sheetBtn.amb{background:linear-gradient(180deg,#ffd267,#f0a413);box-shadow:0 3px 0 #9a6a08}
 .sheetBtn.ghost{background:#132540;color:var(--ink);border:1px solid var(--line);box-shadow:none}
 .tapHint{font-size:9.5px;color:var(--muted);text-align:center;margin-top:9px}
+.staffBar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:grid;
+  grid-template-columns:1fr 1fr;gap:8px;max-width:1100px;margin:0 auto;
+  padding:14px 11px calc(11px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg,rgba(5,11,22,0),rgba(5,11,22,.97) 38%)}
+.staffBtn{border:0;border-radius:12px;padding:15px 8px;font-weight:900;
+  font-size:12.5px;letter-spacing:.4px;cursor:pointer}
+.staffBtn.doc{background:linear-gradient(180deg,#b3a0ff,#7b5cff);color:#fff;box-shadow:0 3px 0 #4a3a9e}
+.staffBtn.eme{background:linear-gradient(180deg,#ff6a6a,#e01111);color:#fff;box-shadow:0 3px 0 #8e1111}
+.staffBtn:active{transform:translateY(3px);box-shadow:none}
+.staffBtn[disabled]{opacity:.35;box-shadow:none}
+.pickGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;
+  max-height:44vh;overflow:auto;margin-bottom:11px}
+.pickBtn{border:1px solid var(--line);background:#0c1a2c;color:var(--ink);
+  border-radius:9px;padding:12px 4px;font-size:11px;font-weight:800;cursor:pointer}
+.pickBtn:active{background:#16293f}
 .btop{display:flex;width:100%;align-items:baseline;justify-content:space-between;gap:6px}
 .rname{font-size:14px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip{font-size:9.5px;color:var(--muted);font-weight:700;flex:none}
@@ -162,7 +177,21 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
   </div>
 
   <div class="grid" id="grid"></div>
-  <div class="tapHint">Tap any room to call a doctor or raise an emergency.</div>
+  <div class="tapHint">Tap any room card for actions on that room.</div>
+
+  <div class="staffBar">
+    <button class="staffBtn doc" id="barDoctor">CALL DOCTOR</button>
+    <button class="staffBtn eme" id="barEmergency">EMERGENCY</button>
+  </div>
+
+  <div class="sheet" id="picker">
+    <div class="sheetInner">
+      <div class="sheetTitle" id="pickerTitle">Call doctor</div>
+      <div class="sheetSub">Which room?</div>
+      <div class="pickGrid" id="pickGrid"></div>
+      <button class="sheetBtn ghost" id="pickerCancel">Cancel</button>
+    </div>
+  </div>
 
   <div class="sheet" id="sheet">
     <div class="sheetInner">
@@ -354,6 +383,8 @@ function render(){
   var online = dev.status === "online";
   panelState(online ? "online" : "offline", online ? "ok" : "bad");
   $("staleWarn").style.display = (!online && dev.state) ? "block" : "none";
+  $("barDoctor").disabled = !online;
+  $("barEmergency").disabled = !online;
   lastSeenAt = dev.seenAt || 0;
   $("deviceLabel").textContent = current + (dev.state ? " · firmware " + dev.state.fw : "");
 
@@ -444,6 +475,41 @@ function freshness(){
   if (stale) el.textContent = "no update for " + text.replace(" ago","");
 }
 setInterval(freshness, 1000);
+
+/* ------------------------------------------------------------ room picker -- */
+var pickerClass = 0;
+
+function openPicker(cls){
+  var dev = devices[current];
+  if (!dev || !dev.state) return;
+  pickerClass = cls;
+  $("pickerTitle").textContent = cls === 2 ? "Emergency" : "Call doctor";
+
+  var names = dev.config && dev.config.names;
+  var count = dev.state.n || dev.state.ch.length;
+  var host = $("pickGrid");
+  host.textContent = "";
+  for (var i = 0; i < count; i++){
+    (function(index){
+      var b = document.createElement("button");
+      b.className = "pickBtn";
+      b.textContent = (names && names[index]) || ("Room " + (index + 1));
+      b.addEventListener("click", function(){
+        $("picker").classList.remove("show");
+        send(pickerClass === 2 ? "emergency" : "doctor", index);
+      });
+      host.appendChild(b);
+    })(i);
+  }
+  $("picker").classList.add("show");
+}
+
+$("barDoctor").addEventListener("click", function(){ openPicker(1); });
+$("barEmergency").addEventListener("click", function(){ openPicker(2); });
+$("pickerCancel").addEventListener("click", function(){ $("picker").classList.remove("show"); });
+$("picker").addEventListener("click", function(e){
+  if (e.target === this) this.classList.remove("show");
+});
 
 /* ----------------------------------------------------------------- sheet -- */
 var sheetChannel = -1;
