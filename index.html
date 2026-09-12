@@ -76,6 +76,8 @@ body{margin:0;min-height:100vh;background:linear-gradient(180deg,var(--bg0),var(
   font-size:12.5px;letter-spacing:.4px;cursor:pointer}
 .staffBtn.doc{background:linear-gradient(180deg,#b3a0ff,#7b5cff);color:#fff;box-shadow:0 3px 0 #4a3a9e}
 .staffBtn.eme{background:linear-gradient(180deg,#ff6a6a,#e01111);color:#fff;box-shadow:0 3px 0 #8e1111}
+.staffBtn.rec{background:linear-gradient(180deg,#7fd7ff,#1f8fc4);color:#06222f;box-shadow:0 3px 0 #135f83}
+.staffBtn.nur{background:linear-gradient(180deg,#8fe6b4,#1fa863);color:#032514;box-shadow:0 3px 0 #106b3d}
 .staffBtn:active{transform:translateY(3px);box-shadow:none}
 .staffBtn[disabled]{opacity:.35;box-shadow:none}
 .pickGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;
@@ -194,6 +196,19 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
     </div>
 
     <div class="row">
+      <label>Deskside buttons</label>
+      <div class="two">
+        <select id="pReception">
+          <option value="1">Reception shown</option><option value="0">Reception hidden</option>
+        </select>
+        <select id="pNurse">
+          <option value="1">Nurse shown</option><option value="0">Nurse hidden</option>
+        </select>
+      </div>
+      <div class="help">Two extra call buttons with no wiring behind them. Rename them in the room list above.</div>
+    </div>
+
+    <div class="row">
       <label for="pChannels">Number of channels</label>
       <select id="pChannels"></select>
     </div>
@@ -254,9 +269,11 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
   <div class="grid" id="grid"></div>
   <div class="tapHint">Tap any room card for actions on that room.</div>
 
-  <div class="staffBar">
+  <div class="staffBar" id="staffBar">
     <button class="staffBtn doc" id="barDoctor">&nbsp;</button>
     <button class="staffBtn eme" id="barEmergency">&nbsp;</button>
+    <button class="staffBtn rec" id="barReception" hidden>&nbsp;</button>
+    <button class="staffBtn nur" id="barNurse" hidden>&nbsp;</button>
   </div>
 
   <div class="sheet" id="picker">
@@ -300,7 +317,7 @@ var DEFAULTS = {
 var client = null, cfg = null, current = null;
 var lastSeenAt = 0;      // when this device last said anything at all
 var devices = {};          // deviceId -> {state, config, status}
-var cards = [], cardCount = -1;
+var cards = [];
 
 function $(id){ return document.getElementById(id); }
 
@@ -340,7 +357,7 @@ function connect(){
   saveCfg();
   if (client) { try { client.end(true); } catch(e){} client = null; }
 
-  devices = {}; current = null; cardCount = -1;
+  devices = {}; current = null;
   $("devicePick").innerHTML = ""; $("devicePick").classList.add("hide");
 
   var url = "wss://" + cfg.host + ":" + cfg.port + cfg.path;
@@ -430,6 +447,26 @@ function labels(){
     emergency: c.emergencyLabel || "EMERGENCY"
   };
 }
+function vchBase(){
+  var dev = devices[current];
+  var c = dev && dev.config;
+  return (c && c.totalChannels) ? c.totalChannels - 2 : 15;
+}
+
+/* The panel reports every channel with a flag saying whether this installation
+   uses it, so the visible set is read from the data rather than assumed to be
+   the first N. */
+function usedChannels(){
+  var dev = devices[current];
+  if (!dev || !dev.state || !dev.state.ch) return [];
+  var list = [];
+  for (var i = 0; i < dev.state.ch.length; i++){
+    var ch = dev.state.ch[i];
+    if (ch.u === undefined || ch.u) list.push(i);
+  }
+  return list;
+}
+
 function roomName(index){
   var dev = devices[current];
   var names = dev && dev.config && dev.config.names;
@@ -443,6 +480,15 @@ function applyLabels(){
   $("barEmergency").textContent   = L.emergency;
   $("sheetDoctor").textContent    = L.doctor;
   $("sheetEmergency").textContent = L.emergency;
+
+  var dev = devices[current];
+  var c = (dev && dev.config) || {};
+  var base = vchBase();
+  $("barReception").hidden = !c.reception;
+  $("barNurse").hidden     = !c.nurse;
+  $("barReception").textContent = roomName(base);
+  $("barNurse").textContent     = roomName(base + 1);
+  $("staffBar").className = "staffBar" + ((c.reception || c.nurse) ? " four" : "");
 }
 
 function fmt(seconds){
@@ -452,14 +498,23 @@ function fmt(seconds){
   return m + ":" + (s<10?"0":"") + s;
 }
 
-function buildCards(n, names){
+function sameIndexes(a, b){
+  if (a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function buildCards(indexes){
   var host = $("grid");
   host.textContent = ""; cards = [];
-  for (var i = 0; i < n; i++){
+  for (var k = 0; k < indexes.length; k++){
+    var i = indexes[k];
+    var deskside = i >= vchBase();
     var box = document.createElement("div");
     box.className = "box";
     box.innerHTML =
-      '<div class="btop"><span class="rname"></span><span class="chip">CH '+(i+1)+'</span></div>'+
+      '<div class="btop"><span class="rname"></span><span class="chip">'+
+        (deskside ? "DESK" : "CH " + (i+1))+'</span></div>'+
       '<div class="lamp"></div>'+
       '<div style="text-align:center"><div class="bstate">NORMAL</div>'+
         '<div class="btime" hidden></div><div class="bsub">Ready</div></div>'+
@@ -476,12 +531,11 @@ function buildCards(n, names){
       box.addEventListener("click", function(){ openSheet(index); });
     })(i);
     host.appendChild(box);
-    cards.push({root:box, name:box.querySelector(".rname"), state:box.querySelector(".bstate"),
+    cards.push({ch:i, root:box, name:box.querySelector(".rname"), state:box.querySelector(".bstate"),
                 time:box.querySelector(".btime"), sub:box.querySelector(".bsub"),
                 acc:box.querySelector(".acc"), res:box.querySelector(".res")});
   }
-  cardCount = n;
-  for (var j = 0; j < n; j++) cards[j].name.textContent = (names && names[j]) || ("Room " + (j+1));
+  for (var j = 0; j < cards.length; j++) cards[j].name.textContent = roomName(cards[j].ch);
 }
 
 /* The panel only speaks when something changes, so between messages the
@@ -491,9 +545,9 @@ function tickTimers(){
   var dev = devices[current];
   if (!dev || !dev.state || !dev.stateAt) return;
   var elapsed = (Date.now() - dev.stateAt) / 1000;
-  for (var i = 0; i < cards.length && i < dev.state.ch.length; i++){
-    var ch = dev.state.ch[i];
-    if (ch.s === 0) continue;
+  for (var i = 0; i < cards.length; i++){
+    var ch = dev.state.ch[cards[i].ch];
+    if (!ch || ch.s === 0) continue;
     cards[i].time.textContent = fmt(Math.max(0, ch.r - elapsed));
   }
 }
@@ -516,14 +570,15 @@ function render(){
   var st = dev.state, conf = dev.config;
   if (!st) return;
 
-  var n = st.n || (st.ch ? st.ch.length : 0);
-  var names = conf && conf.names;
-  if (cardCount !== n) buildCards(n, names);
-  else for (var k = 0; k < cards.length; k++) cards[k].name.textContent = roomName(k);
+  var wanted = usedChannels();
+  if (!sameIndexes(wanted, cards.map(function(c){ return c.ch; }))) buildCards(wanted);
+  else for (var k = 0; k < cards.length; k++) cards[k].name.textContent = roomName(cards[k].ch);
 
   var active = 0;
-  for (var i = 0; i < n && i < st.ch.length; i++){
-    var ch = st.ch[i], c = cards[i];
+  for (var p = 0; p < cards.length; p++){
+    var c = cards[p], i = c.ch;
+    var ch = st.ch[i];
+    if (!ch) continue;
     var waiting = ch.s === 1, attending = ch.s === 2;
     var kind = ch.c || 0;                 // 0 patient, 1 doctor, 2 emergency
     if (waiting) active++;
@@ -539,7 +594,7 @@ function render(){
       : (attending ? "ATTENDING" : "CALL ACTIVE");
 
     // Urgency floats to the top, so an emergency is never below the fold.
-    c.root.style.order = ch.s === 0 ? 600 : ((2 - kind) * 2 + (waiting ? 0 : 1)) * 100 + i;
+    c.root.style.order = ch.s === 0 ? 600 : ((2 - kind) * 2 + (waiting ? 0 : 1)) * 100 + p;
     c.time.hidden = ch.s === 0;
     if (ch.s !== 0) c.time.textContent = fmt(ch.r);
     c.sub.textContent = ch.s === 0 ? "Ready"
@@ -550,7 +605,7 @@ function render(){
   }
 
   $("sActive").textContent = active;
-  $("sRooms").textContent  = n;
+  $("sRooms").textContent  = cards.length;
   $("sCalls").textContent  = st.calls === undefined ? "--" : st.calls;
   $("sRem").textContent    = st.rem  === undefined ? "--" : st.rem;
 }
@@ -609,7 +664,8 @@ var SETTING_FIELDS = {
   doctorLabel:"pDoctor", emergencyLabel:"pEmergency",
   n:"pChannels", timeout:"pTimeout", interval:"pInterval", reminders:"pReminders",
   callRingtone:"pCallTone", reminderRingtone:"pRemTone", buzzerEnabled:"pBuzzer",
-  viewLayout:"pLayout", cardOrder:"pOrder"
+  viewLayout:"pLayout", cardOrder:"pOrder",
+  reception:"pReception", nurse:"pNurse"
 };
 // The panel names some settings differently from the command it accepts.
 var SETTING_KEYS = {n:"channelCount", timeout:"callTimeout", interval:"reminderInterval",
@@ -652,18 +708,23 @@ function loadSettingsForm(){
 
   var host = $("pNames");
   host.innerHTML = "";
-  for (var i = 0; i < (c.n || 0); i++){
-    (function(index){
+  var rows = [];
+  for (var r = 0; r < (c.n || 0); r++) rows.push([r, "CH " + (r + 1)]);
+  var base = (c.totalChannels || 17) - 2;
+  rows.push([base, "Reception"]);
+  rows.push([base + 1, "Nurse"]);
+  for (var q = 0; q < rows.length; q++){
+    (function(index, rowLabel){
       var row = document.createElement("div"); row.className = "nrow";
       var lbl = document.createElement("span"); lbl.className = "nlbl";
-      lbl.textContent = "CH " + (index + 1);
+      lbl.textContent = rowLabel;
       var input = document.createElement("input");
       input.type = "text"; input.maxLength = 16; input.id = "pName" + index;
       input.placeholder = (c.roomWord || "Room") + " " + (index + 1);
       input.value = (c.names && c.names[index]) || "";
       row.appendChild(lbl); row.appendChild(input);
       host.appendChild(row);
-    })(i);
+    })(rows[q][0], rows[q][1]);
   }
 }
 
@@ -699,7 +760,8 @@ function saveSettingsToPanel(){
     push(SETTING_KEYS[field] || field, value);
   }
 
-  for (var i = 0; i < (c.n || 0); i++){
+  var total = c.totalChannels || (c.n || 0);
+  for (var i = 0; i < total; i++){
     var el2 = $("pName" + i);
     if (!el2) continue;
     var v = el2.value.trim();
@@ -744,10 +806,10 @@ function openPicker(cls){
   $("pickerTitle").textContent = cls === 2 ? labels().emergency : labels().doctor;
 
   var names = dev.config && dev.config.names;
-  var count = dev.state.n || dev.state.ch.length;
   var host = $("pickGrid");
   host.textContent = "";
-  for (var i = 0; i < count; i++){
+  var list = usedChannels();
+  for (var q = 0; q < list.length; q++){
     (function(index){
       var b = document.createElement("button");
       b.className = "pickBtn";
@@ -757,13 +819,16 @@ function openPicker(cls){
         send(pickerClass === 2 ? "emergency" : "doctor", index);
       });
       host.appendChild(b);
-    })(i);
+    })(list[q]);
   }
   $("picker").classList.add("show");
 }
 
 $("barDoctor").addEventListener("click", function(){ openPicker(1); });
 $("barEmergency").addEventListener("click", function(){ openPicker(2); });
+// One tap: whoever presses these is the one asking, so there is no room to pick.
+$("barReception").addEventListener("click", function(){ send("call", vchBase()); });
+$("barNurse").addEventListener("click", function(){ send("call", vchBase() + 1); });
 $("pickerCancel").addEventListener("click", function(){ $("picker").classList.remove("show"); });
 $("picker").addEventListener("click", function(e){
   if (e.target === this) this.classList.remove("show");
@@ -821,7 +886,7 @@ $("cfgBtn").addEventListener("click", function(){
   p.style.display = (p.style.display === "none") ? "block" : "none";
 });
 $("connectBtn").addEventListener("click", connect);
-$("devicePick").addEventListener("change", function(){ current = this.value; cardCount = -1; render(); });
+$("devicePick").addEventListener("change", function(){ current = this.value; cards = []; render(); });
 
 loadCfg();
 if (cfg.user) connect();          // straight in on a return visit
