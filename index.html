@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#081221">
+<title>Argo Alert — remote</title>
+<style>
+:root{--bg0:#050b16;--bg1:#0a1526;--card:#0e1c30;--card2:#12233b;--ink:#eaf2ff;
+  --muted:#7f93ad;--line:#1c3352;--blue:#2f8bff;--red:#ff3b3b;--amber:#ffb020;--green:#22d36a}
+*{box-sizing:border-box}
+html{background:#050b16;min-height:100%}
+body{margin:0;min-height:100vh;background:linear-gradient(180deg,var(--bg0),var(--bg1));
+  color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+.hdr{position:sticky;top:0;z-index:30;background:rgba(8,18,33,.96);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:10px;padding:10px 13px;padding-top:calc(10px + env(safe-area-inset-top))}
+.brand{flex:1;min-width:0}
+.bname{font-size:16px;font-weight:900;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bname i{font-style:normal;color:var(--blue)}
+.btag{font-size:10px;color:var(--muted);margin-top:1px}
+.hb{border:0;border-radius:10px;font-weight:800;cursor:pointer;flex:none;padding:9px 12px;font-size:11.5px;
+  background:linear-gradient(180deg,#3d95ff,#1e6fd8);color:#fff;box-shadow:0 2px 0 #14508f}
+.hb.grey{background:#132540;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+.hb:active{transform:translateY(2px);box-shadow:none}
+.conn{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--muted);padding:7px 14px 0;flex-wrap:wrap}
+.cdot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.cdot.ok{background:var(--green)}.cdot.bad{background:var(--red)}
+.wrap{max-width:1100px;margin:0 auto;padding:11px 11px 40px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:11px}
+.st{border-radius:11px;padding:9px 4px;text-align:center;border:1px solid var(--line);background:var(--card)}
+.st.red{border-color:#5a1f1f;background:linear-gradient(180deg,#1e0f14,#140b10)}
+.stv{font-size:19px;font-weight:900;line-height:1;color:var(--blue)}
+.st.red .stv{color:var(--red)}
+.stl{font-size:8.5px;color:var(--muted);letter-spacing:.7px;margin-top:4px}
+.grid{display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(158px,1fr))}
+.box{border:1.5px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--card2),var(--card));
+  padding:11px 10px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px}
+.box.waiting{border-color:var(--red);background:linear-gradient(180deg,#24101a,#160c12)}
+.box.attending{border-color:var(--amber);background:linear-gradient(180deg,#241c0c,#161108)}
+.btop{display:flex;width:100%;align-items:baseline;justify-content:space-between;gap:6px}
+.rname{font-size:14px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font-size:9.5px;color:var(--muted);font-weight:700;flex:none}
+.lamp{width:46px;height:46px;border-radius:50%;border:2px solid #223247;
+  background:radial-gradient(circle at 34% 30%,#8ff0b6,#22d36a 58%,#0b7a38);border-color:#146b36}
+.box.waiting .lamp{background:radial-gradient(circle at 34% 30%,#ff8f8f,#ff2020 58%,#8d0d0d);
+  border-color:#7d1c1c;box-shadow:0 0 18px rgba(255,45,45,.7);animation:throb 1s infinite}
+.box.attending .lamp{background:radial-gradient(circle at 34% 30%,#ffe08a,#ffb020 58%,#9a6605);border-color:#7d5a15}
+@keyframes throb{0%,100%{opacity:1}50%{opacity:.42}}
+.bstate{font-size:10px;font-weight:900;letter-spacing:.5px;color:var(--green)}
+.box.waiting .bstate{color:var(--red)}.box.attending .bstate{color:var(--amber)}
+.btime{font-size:19px;font-weight:900;font-variant-numeric:tabular-nums}
+.bsub{font-size:9.5px;color:var(--muted)}
+.bbtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%;margin-top:2px}
+.pb{border:0;border-radius:9px;padding:9px 4px;font-size:10px;font-weight:900;cursor:pointer;
+  color:#0b1220;background:linear-gradient(180deg,#e9eef5,#b9c4d3);box-shadow:0 3px 0 #7b8798}
+.pb.acc{background:linear-gradient(180deg,#ffd267,#f0a413);box-shadow:0 3px 0 #9a6a08}
+.pb.res{background:linear-gradient(180deg,#ff6a6a,#e02121);color:#fff;box-shadow:0 3px 0 #8e1111}
+.pb:active{transform:translateY(3px);box-shadow:none}
+.pb[disabled]{display:none}
+.panel{border:1px solid var(--line);border-radius:14px;background:var(--card);padding:15px;margin-bottom:11px}
+.panel h2{font-size:15px;font-weight:900;margin:0 0 12px}
+.row{margin-bottom:12px}
+label{display:block;font-size:11.5px;font-weight:800;margin-bottom:5px}
+input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;
+  background:#0c1a2c;color:var(--ink);font-size:13.5px;outline:none}
+.help{font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.act{width:100%;border:0;border-radius:10px;padding:12px;font-weight:900;font-size:12.5px;cursor:pointer;
+  background:linear-gradient(180deg,#3d95ff,#1e6fd8);color:#fff;box-shadow:0 3px 0 #14508f}
+.act:active{transform:translateY(3px);box-shadow:none}
+.feed{max-height:230px;overflow:auto}
+.fr{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:11px}
+.fr:last-child{border-bottom:0}
+.fr .w{color:var(--muted);flex:none}
+.fr b.call{color:var(--red)}.fr b.rem{color:var(--amber)}.fr b.ok{color:var(--green)}
+.warn{border:1px solid #5a4415;background:linear-gradient(180deg,#1d160a,#140f08);border-radius:11px;
+  padding:11px 13px;margin-bottom:11px;font-size:11.5px;color:#ffd79a}
+.hide{display:none}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="brand">
+    <div class="bname">ARGO <i>ALERT</i> &mdash; REMOTE</div>
+    <div class="btag" id="deviceLabel">not connected</div>
+  </div>
+  <select id="devicePick" class="hide" style="width:auto;flex:none;padding:8px"></select>
+  <button class="hb grey" id="cfgBtn">Broker</button>
+</div>
+<div class="conn">
+  <span class="cdot" id="brokerDot"></span><span id="brokerText">Broker: idle</span>
+  <span style="opacity:.4">|</span>
+  <span class="cdot" id="panelDot"></span><span id="panelText">Panel: unknown</span>
+  <span style="opacity:.4">|</span>
+  <span id="freshText">no data yet</span>
+</div>
+
+<div class="wrap">
+
+  <div class="panel" id="cfgPanel">
+    <h2>Broker connection</h2>
+    <div class="row">
+      <label for="host">WebSocket host</label>
+      <input type="text" id="host" autocapitalize="off" spellcheck="false">
+      <div class="help">Your HiveMQ cluster address. Browsers cannot speak raw MQTT, so this uses the secure WebSocket port, normally 8884 with the path /mqtt.</div>
+    </div>
+    <div class="two">
+      <div class="row"><label for="port">Port</label><input type="number" id="port"></div>
+      <div class="row"><label for="path">Path</label><input type="text" id="path"></div>
+    </div>
+    <div class="two">
+      <div class="row"><label for="user">Username</label><input type="text" id="user" autocapitalize="off" spellcheck="false"></div>
+      <div class="row"><label for="pass">Password</label><input type="password" id="pass"></div>
+    </div>
+    <div class="two">
+      <div class="row"><label for="tenant">Tenant</label><input type="text" id="tenant" autocapitalize="off"></div>
+      <div class="row"><label for="device">Device filter</label><input type="text" id="device" autocapitalize="off"></div>
+    </div>
+    <div class="help" style="margin-bottom:12px">Device filter accepts + to watch every panel belonging to this tenant.</div>
+    <button class="act" id="connectBtn">CONNECT</button>
+    <div class="help" id="cfgMsg" style="text-align:center;min-height:14px;margin-top:9px"></div>
+  </div>
+
+  <div class="warn" id="staleWarn" style="display:none">
+    This panel is reporting itself offline. What you see below is its last known state.
+  </div>
+
+  <div class="stats">
+    <div class="st red"><div class="stv" id="sActive">0</div><div class="stl">ACTIVE</div></div>
+    <div class="st"><div class="stv" id="sRooms">0</div><div class="stl">ROOMS</div></div>
+    <div class="st"><div class="stv" id="sUp">--</div><div class="stl">UPTIME</div></div>
+    <div class="st"><div class="stv" id="sRssi">--</div><div class="stl">SIGNAL</div></div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="panel" style="margin-top:12px">
+    <h2>Activity</h2>
+    <div class="feed" id="feed"><div class="help">Waiting for events.</div></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"></script>
+<script>
+"use strict";
+
+var EV = {1:["Call","call"],2:["Reminder","rem"],3:["Accepted","ok"],4:["Cleared","ok"],5:["Timed out","ok"]};
+var DEFAULTS = {
+  host: "4942e1fa0c9342439e329bd9eed8d79b.s1.eu.hivemq.cloud",
+  port: 8884, path: "/mqtt", user: "", pass: "",
+  tenant: "demo", device: "+"
+};
+
+var client = null, cfg = null, current = null;
+var lastSeenAt = 0;      // when this device last said anything at all
+var devices = {};          // deviceId -> {state, config, status}
+var cards = [], cardCount = -1;
+
+function $(id){ return document.getElementById(id); }
+
+/* ------------------------------------------------------------- settings -- */
+function loadCfg(){
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem("argoBroker") || "{}"); } catch(e){}
+  cfg = Object.assign({}, DEFAULTS, saved);
+  $("host").value = cfg.host; $("port").value = cfg.port; $("path").value = cfg.path;
+  $("user").value = cfg.user; $("pass").value = cfg.pass;
+  $("tenant").value = cfg.tenant; $("device").value = cfg.device;
+}
+function saveCfg(){
+  cfg = {
+    host: $("host").value.trim(), port: parseInt($("port").value,10) || 8884,
+    path: $("path").value.trim() || "/mqtt",
+    user: $("user").value.trim(), pass: $("pass").value,
+    tenant: $("tenant").value.trim() || "demo",
+    device: $("device").value.trim() || "+"
+  };
+  // Credentials stay in this browser. Stage two issues a per-user credential
+  // from a backend instead of asking each viewer to type a shared one.
+  try { localStorage.setItem("argoBroker", JSON.stringify(cfg)); } catch(e){}
+}
+
+/* ----------------------------------------------------------------- mqtt -- */
+function brokerState(text, cls){
+  $("brokerText").textContent = "Broker: " + text;
+  $("brokerDot").className = "cdot" + (cls ? " " + cls : "");
+}
+function panelState(text, cls){
+  $("panelText").textContent = "Panel: " + text;
+  $("panelDot").className = "cdot" + (cls ? " " + cls : "");
+}
+
+function connect(){
+  saveCfg();
+  if (client) { try { client.end(true); } catch(e){} client = null; }
+
+  devices = {}; current = null; cardCount = -1;
+  $("devicePick").innerHTML = ""; $("devicePick").classList.add("hide");
+
+  var url = "wss://" + cfg.host + ":" + cfg.port + cfg.path;
+  brokerState("connecting", "");
+  $("cfgMsg").textContent = "";
+
+  client = mqtt.connect(url, {
+    username: cfg.user, password: cfg.pass,
+    clean: true, reconnectPeriod: 4000, connectTimeout: 10000,
+    clientId: "argo-web-" + Math.random().toString(16).slice(2, 10)
+  });
+
+  client.on("connect", function(){
+    brokerState("connected", "ok");
+    $("cfgPanel").style.display = "none";
+    var base = "argo/" + cfg.tenant + "/" + cfg.device + "/";
+    ["status","config","state","event"].forEach(function(leaf){
+      client.subscribe(base + leaf, {qos: 1});
+    });
+  });
+  client.on("reconnect", function(){ brokerState("reconnecting", ""); });
+  client.on("close",     function(){ brokerState("disconnected", "bad"); });
+  client.on("error", function(err){
+    brokerState("error", "bad");
+    var text = String(err && err.message || err);
+    $("cfgMsg").textContent = /Not authorized|Bad username/i.test(text)
+      ? "Broker rejected the username or password."
+      : text;
+    $("cfgMsg").style.color = "var(--red)";
+    $("cfgPanel").style.display = "block";
+  });
+  client.on("message", onMessage);
+}
+
+function onMessage(topic, payload){
+  var parts = topic.split("/");          // argo / tenant / device / leaf
+  if (parts.length < 4) return;
+  var id = parts[2], leaf = parts[3];
+  var text = payload.toString();
+
+  var dev = devices[id] || (devices[id] = {status:"?", config:null, state:null});
+  dev.seenAt = Date.now();
+
+  if (leaf === "status") dev.status = text;
+  else if (leaf === "event") { addEvent(id, text); return; }
+  else {
+    try { dev[leaf] = JSON.parse(text); } catch(e) { return; }
+  }
+
+  refreshDeviceList();
+  if (!current) current = id;
+  if (id === current) render();
+}
+
+function refreshDeviceList(){
+  var ids = Object.keys(devices).sort();
+  var pick = $("devicePick");
+  if (ids.length < 2) { pick.classList.add("hide"); return; }
+  if (pick.options.length !== ids.length) {
+    pick.innerHTML = "";
+    ids.forEach(function(id){
+      var o = document.createElement("option");
+      o.value = id; o.textContent = id;
+      pick.appendChild(o);
+    });
+    pick.value = current || ids[0];
+    pick.classList.remove("hide");
+  }
+}
+
+/* --------------------------------------------------------------- render -- */
+function fmt(seconds){
+  seconds = Math.max(0, Math.floor(seconds));
+  var m = Math.floor(seconds/60), s = seconds%60;
+  if (m >= 60) return Math.floor(m/60)+"h "+(m%60)+"m";
+  return m + ":" + (s<10?"0":"") + s;
+}
+
+function buildCards(n, names){
+  var host = $("grid");
+  host.textContent = ""; cards = [];
+  for (var i = 0; i < n; i++){
+    var box = document.createElement("div");
+    box.className = "box";
+    box.innerHTML =
+      '<div class="btop"><span class="rname"></span><span class="chip">CH '+(i+1)+'</span></div>'+
+      '<div class="lamp"></div>'+
+      '<div style="text-align:center"><div class="bstate">NORMAL</div>'+
+        '<div class="btime" hidden></div><div class="bsub">Ready</div></div>'+
+      '<div class="bbtns">'+
+        '<button class="pb acc" disabled>ACCEPT</button>'+
+        '<button class="pb res" disabled>CLEAR</button></div>';
+    (function(index){
+      box.querySelector(".acc").addEventListener("click", function(){ send("accept", index); });
+      box.querySelector(".res").addEventListener("click", function(){ send("clear", index); });
+    })(i);
+    host.appendChild(box);
+    cards.push({root:box, name:box.querySelector(".rname"), state:box.querySelector(".bstate"),
+                time:box.querySelector(".btime"), sub:box.querySelector(".bsub"),
+                acc:box.querySelector(".acc"), res:box.querySelector(".res")});
+  }
+  cardCount = n;
+  for (var j = 0; j < n; j++) cards[j].name.textContent = (names && names[j]) || ("Room " + (j+1));
+}
+
+function render(){
+  var dev = devices[current];
+  if (!dev) return;
+
+  var online = dev.status === "online";
+  panelState(online ? "online" : "offline", online ? "ok" : "bad");
+  $("staleWarn").style.display = (!online && dev.state) ? "block" : "none";
+  lastSeenAt = dev.seenAt || 0;
+  $("deviceLabel").textContent = current + (dev.state ? " · firmware " + dev.state.fw : "");
+
+  var st = dev.state, conf = dev.config;
+  if (!st) return;
+
+  var n = st.n || (st.ch ? st.ch.length : 0);
+  var names = conf && conf.names;
+  if (cardCount !== n) buildCards(n, names);
+  else if (names) for (var k = 0; k < cards.length; k++) cards[k].name.textContent = names[k] || ("Room "+(k+1));
+
+  var active = 0;
+  for (var i = 0; i < n && i < st.ch.length; i++){
+    var ch = st.ch[i], c = cards[i];
+    var waiting = ch.s === 1, attending = ch.s === 2;
+    if (waiting) active++;
+
+    c.root.className = "box" + (waiting ? " waiting" : attending ? " attending" : "");
+    c.state.textContent = waiting ? "CALL ACTIVE" : attending ? "ATTENDING" : "NORMAL";
+    c.time.hidden = ch.s === 0;
+    if (ch.s !== 0) c.time.textContent = fmt(ch.r);
+    c.sub.textContent = ch.s === 0 ? "Ready"
+      : "Reminders " + ch.m + (conf ? " / " + conf.reminders : "");
+    // A panel that is offline cannot act on a command, so do not offer one.
+    c.acc.disabled = !waiting || !online;
+    c.res.disabled = ch.s === 0 || !online;
+  }
+
+  $("sActive").textContent = active;
+  $("sRooms").textContent  = n;
+  $("sUp").textContent     = st.up > 3600 ? Math.floor(st.up/3600)+"h" : Math.floor(st.up/60)+"m";
+  $("sRssi").textContent   = st.rssi ? st.rssi + "dB" : "--";
+}
+
+function addEvent(id, text){
+  var e;
+  try { e = JSON.parse(text); } catch(err) { return; }
+  var feed = $("feed");
+  if (feed.firstChild && feed.firstChild.className === "help") feed.textContent = "";
+
+  var label = EV[e.type] || ["Event","ok"];
+  var row = document.createElement("div");
+  row.className = "fr";
+  var left = document.createElement("span");
+  left.innerHTML = '<b class="' + label[1] + '">' + label[0] + '</b> &middot; ' +
+                   (e.name || ("Room " + (e.ch + 1))) +
+                   (e.src === 1 ? ' <span style="opacity:.6">(remote)</span>' : '');
+  var right = document.createElement("span");
+  right.className = "w";
+  right.textContent = e.epoch ? new Date(e.epoch*1000).toLocaleTimeString()
+                              : new Date().toLocaleTimeString();
+  row.appendChild(left); row.appendChild(right);
+  feed.insertBefore(row, feed.firstChild);
+  while (feed.children.length > 60) feed.removeChild(feed.lastChild);
+}
+
+/* A panel that is connected and has nothing to report says nothing at all, so
+   a still screen is the normal case rather than a broken one. Showing how long
+   ago it last spoke is what tells the two apart. The panel beats every thirty
+   seconds while a call is open and every five minutes when idle, so silence
+   past about six minutes is worth flagging. */
+function freshness(){
+  var el = $("freshText");
+  if (!lastSeenAt){ el.textContent = "no data yet"; el.style.color = ""; return; }
+
+  var seconds = Math.round((Date.now() - lastSeenAt) / 1000);
+  var text = seconds < 60 ? seconds + "s ago"
+           : seconds < 3600 ? Math.floor(seconds/60) + "m ago"
+           : Math.floor(seconds/3600) + "h ago";
+  el.textContent = "updated " + text;
+
+  var dev = devices[current];
+  var stale = seconds > 390 && dev && dev.status === "online";
+  el.style.color = stale ? "var(--amber)" : "";
+  if (stale) el.textContent = "no update for " + text.replace(" ago","");
+}
+setInterval(freshness, 1000);
+
+/* -------------------------------------------------------------- commands -- */
+function send(action, channel){
+  if (!client || !current) return;
+  var actor = "web";
+  var topic = "argo/" + cfg.tenant + "/" + current + "/cmd";
+  client.publish(topic, action + ":" + channel + ":" + actor, {qos: 1});
+}
+
+/* -------------------------------------------------------------- handlers -- */
+$("cfgBtn").addEventListener("click", function(){
+  var p = $("cfgPanel");
+  p.style.display = (p.style.display === "none") ? "block" : "none";
+});
+$("connectBtn").addEventListener("click", connect);
+$("devicePick").addEventListener("change", function(){ current = this.value; cardCount = -1; render(); });
+
+loadCfg();
+if (cfg.user) connect();          // straight in on a return visit
+</script>
+</body>
+</html>
