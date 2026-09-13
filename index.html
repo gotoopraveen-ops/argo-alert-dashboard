@@ -166,7 +166,15 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
       <div class="row"><label for="tenant">Tenant</label><input type="text" id="tenant" autocapitalize="off"></div>
       <div class="row"><label for="device">Device filter</label><input type="text" id="device" autocapitalize="off"></div>
     </div>
-    <div class="help" style="margin-bottom:12px">Device filter accepts + to watch every panel belonging to this tenant.</div>
+    <div class="two">
+      <div class="row"><label for="panelId">Panel id</label><input type="text" id="panelId" autocapitalize="off" spellcheck="false"></div>
+      <div class="row"><label for="panelKey">Panel key</label><input type="text" id="panelKey" autocapitalize="off" spellcheck="false"></div>
+    </div>
+    <div class="help" style="margin-bottom:12px">Device filter accepts + to watch
+      every panel belonging to this tenant. The panel id and key are only needed
+      here if you did not arrive from the app: without a key this page can watch
+      a panel but not command it. Both are printed on the panel's own settings
+      screen and in its serial banner.</div>
     <button class="act" id="connectBtn">CONNECT</button>
     <div class="help" id="cfgMsg" style="text-align:center;min-height:14px;margin-top:9px"></div>
   </div>
@@ -332,6 +340,15 @@ function credentialsFromLink(){
     host: parts.get("h") || DEFAULTS.host
   };
 
+  // "k=panel-a4cf12:KEY,panel-93bb01:KEY" -- the panels this person has been
+  // physically present at. The broker credential gets anyone onto the broker;
+  // these are what say which panels they may actually command.
+  var keyList = parts.get("k") || "";
+  keyList.split(",").forEach(function(entry){
+    var colon = entry.indexOf(":");
+    if (colon > 0) rememberKey(entry.substring(0, colon), entry.substring(colon + 1));
+  });
+
   // Do not leave it sitting in the address bar or the back history.
   try { history.replaceState(null, "", location.pathname + location.search); }
   catch(e){ location.hash = ""; }
@@ -344,6 +361,53 @@ var devices = {};          // deviceId -> {state, config, status}
 var cards = [];
 
 function $(id){ return document.getElementById(id); }
+
+/* ------------------------------------------------------- panel keys ------ */
+/* One key per panel, learned by a phone that stood on that panel's own Wi-Fi
+   and passed to this page in the link. Holding a key is what lets this page
+   command that panel; without one it can still watch, because the panel has
+   already published its state and no page can un-publish it. */
+var panelKeys = {};
+try { panelKeys = JSON.parse(localStorage.getItem("argoPanelKeys") || "{}"); } catch(e){}
+
+function rememberKey(device, key){
+  if (!device || !key) return;
+  panelKeys[device] = key;
+  try { localStorage.setItem("argoPanelKeys", JSON.stringify(panelKeys)); } catch(e){}
+}
+
+function havePairedPanels(){ return Object.keys(panelKeys).length > 0; }
+
+/* HMAC-SHA256 over "<counter>|<command>", truncated to 16 bytes of hex, which
+   is what the panel recomputes. The key itself never goes near the broker, so
+   reading the command topic teaches an eavesdropper nothing reusable, and the
+   counter stops them replaying what they captured. */
+function signCommand(key, data){
+  var bytes = new TextEncoder().encode(data);
+  return crypto.subtle.importKey("raw", new TextEncoder().encode(key),
+                                 {name:"HMAC", hash:"SHA-256"}, false, ["sign"])
+    .then(function(k){ return crypto.subtle.sign("HMAC", k, bytes); })
+    .then(function(sig){
+      var out = "";
+      var view = new Uint8Array(sig);
+      for (var i = 0; i < 16; i++) out += ("0" + view[i].toString(16)).slice(-2);
+      return out;
+    });
+}
+
+/* Every command to a panel goes through here, so there is exactly one place
+   that can forget to sign one. */
+function publishCommand(device, payload){
+  var key = panelKeys[device];
+  if (!key || !client) return Promise.resolve(false);
+
+  var counter = String(Date.now());
+  return signCommand(key, counter + "|" + payload).then(function(sig){
+    client.publish("argo/" + cfg.tenant + "/" + device + "/cmd",
+                   counter + "|" + sig + "|" + payload, {qos: 1});
+    return true;
+  }).catch(function(){ return false; });
+}
 
 /* ------------------------------------------------------------- settings -- */
 function loadCfg(){
@@ -370,6 +434,8 @@ function saveCfg(){
   // Credentials stay in this browser. Stage two issues a per-user credential
   // from a backend instead of asking each viewer to type a shared one.
   try { localStorage.setItem("argoBroker", JSON.stringify(cfg)); } catch(e){}
+
+  rememberKey($("panelId").value.trim(), $("panelKey").value.trim());
 }
 
 /* ----------------------------------------------------------------- mqtt -- */
@@ -447,12 +513,21 @@ function onMessage(topic, payload){
   }
 
   refreshDeviceList();
-  if (!current) current = id;
+  if (!current && (!havePairedPanels() || panelKeys[id])) current = id;
   if (id === current) render();
 }
 
 function refreshDeviceList(){
   var ids = Object.keys(devices).sort();
+
+  // Once this browser holds any panel key, it belongs to somebody who has been
+  // to specific panels, and other customers' panels are none of their business.
+  // A bare dashboard with broker details typed in by hand still sees everything,
+  // because that is a maintenance tool, not a staff screen.
+  if (havePairedPanels()) {
+    ids = ids.filter(function(id){ return panelKeys[id]; });
+    if (current && !panelKeys[current]) current = ids[0] || null;
+  }
   var pick = $("devicePick");
   if (ids.length < 2) { pick.classList.add("hide"); return; }
   if (pick.options.length !== ids.length) {
@@ -781,8 +856,7 @@ function saveSettingsToPanel(){
   }
 
   function push(key, value){
-    client.publish("argo/" + cfg.tenant + "/" + current + "/cmd",
-                   "cfg:" + key + "=" + value, {qos: 1});
+    publishCommand(current, "cfg:" + key + "=" + value);
     sent++;
   }
 
@@ -909,9 +983,7 @@ $("sheetClear").addEventListener("click", function(){ sheetSend("clear"); });
 /* -------------------------------------------------------------- commands -- */
 function send(action, channel){
   if (!client || !current) return;
-  var actor = "web";
-  var topic = "argo/" + cfg.tenant + "/" + current + "/cmd";
-  client.publish(topic, action + ":" + channel + ":" + actor, {qos: 1});
+  publishCommand(current, action + ":" + channel + ":web");
 }
 
 /* -------------------------------------------------------------- handlers -- */
