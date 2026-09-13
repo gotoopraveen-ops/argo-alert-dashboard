@@ -455,6 +455,10 @@ function diagnoseBroker(){
   netWarn("Cannot reach the broker. Checking what is in the way...");
 
   portOpensTwice("wss://" + cfg.host + ":" + cfg.port + cfg.path).then(function(open){
+    // The checks take the best part of half a minute, and the connection often
+    // succeeds while they are still running. An answer about a failure that is
+    // already over belongs nowhere near the screen.
+    if (everConnected) { netWarn(""); diagnosing = false; return; }
     if (open) {
       netWarn("This network reaches the broker, so the connection itself was "
             + "refused. Check the username and password on the Broker screen.");
@@ -462,6 +466,7 @@ function diagnoseBroker(){
       return;
     }
     return webWorks().then(function(ok){
+      if (everConnected) { netWarn(""); diagnosing = false; return; }
       netWarn(ok
         ? ("The web is working but nothing will open on port " + cfg.port + ". "
          + "Either this network is not carrying that port, or it is too slow to "
