@@ -394,29 +394,39 @@ function netWarn(text){
   el.style.display = "block";
 }
 
-/* Does this network let us open a socket to the broker's port at all?
-   A plain fetch is no use here: the broker's port answers a WebSocket upgrade
-   and nothing else, so an ordinary request fails even when the port is wide
-   open. Opening the same kind of socket the real client opens, and stopping
-   before MQTT says a word, separates "the network refuses to carry this" from
-   "the broker refused us". */
+/* Can we open a socket to the broker's port at all, right now?
+   A plain fetch is no use: that port answers a WebSocket upgrade and nothing
+   else, so an ordinary request fails even when the port is wide open. Opening
+   the same kind of socket the real client opens, and stopping before MQTT says
+   a word, separates a network that will not carry the connection from a broker
+   that refused us.
+
+   Two attempts, and a patient timeout. A first handshake on a busy mobile link
+   can take many seconds, and treating slow as blocked is how a working network
+   gets blamed for something it did not do. */
 function portOpens(url){
   return new Promise(function(done){
     var settled = false;
+    var socket;
     function finish(answer){
       if (settled) return;
       settled = true;
       try { socket.close(); } catch(e){}
       done(answer);
     }
-    var socket;
     try { socket = new WebSocket(url, "mqtt"); }
     catch(e){ return done(false); }
 
-    var timer = setTimeout(function(){ finish(false); }, 7000);
+    var timer = setTimeout(function(){ finish(false); }, 12000);
     socket.onopen  = function(){ clearTimeout(timer); finish(true); };
     socket.onerror = function(){ clearTimeout(timer); finish(false); };
     socket.onclose = function(){ clearTimeout(timer); finish(false); };
+  });
+}
+
+function portOpensTwice(url){
+  return portOpens(url).then(function(ok){
+    return ok ? true : portOpens(url);
   });
 }
 
@@ -424,27 +434,27 @@ function portOpens(url){
    without depending on anybody else's server being up. */
 function webWorks(){
   var stop = new AbortController();
-  var timer = setTimeout(function(){ stop.abort(); }, 6000);
+  var timer = setTimeout(function(){ stop.abort(); }, 8000);
   return fetch(location.origin + "/?ping=" + Date.now(),
                {mode: "no-cors", cache: "no-store", signal: stop.signal})
     .then(function(){ clearTimeout(timer); return true; })
     .catch(function(){ clearTimeout(timer); return false; });
 }
 
-/* "Broker: disconnected" tells a person nothing they can act on. When the very
-   first connection never succeeds, find out what is actually in the way and say
-   it in words.
+/* "Broker: disconnected" is not something a person can act on. When the first
+   connection never succeeds, narrow it down and say what is known, without
+   claiming more than was actually tested.
 
-   The usual answer on a mobile network is the port. Brokers listen on unusual
-   ones, and some carriers carry ordinary web traffic while quietly dropping
-   everything else. */
+   In particular: a socket that would not open says nothing about whether the
+   port is blocked or the link was simply slow. Those need the same first step
+   from whoever is reading, so say the step rather than guess the cause. */
 var diagnosing = false;
 function diagnoseBroker(){
   if (diagnosing) return;
   diagnosing = true;
   netWarn("Cannot reach the broker. Checking what is in the way...");
 
-  portOpens("wss://" + cfg.host + ":" + cfg.port + cfg.path).then(function(open){
+  portOpensTwice("wss://" + cfg.host + ":" + cfg.port + cfg.path).then(function(open){
     if (open) {
       netWarn("This network reaches the broker, so the connection itself was "
             + "refused. Check the username and password on the Broker screen.");
@@ -453,9 +463,10 @@ function diagnoseBroker(){
     }
     return webWorks().then(function(ok){
       netWarn(ok
-        ? ("This network is blocking port " + cfg.port + ". The web works but "
-         + "that port does not, which some mobile networks do on purpose. On "
-         + "Wi-Fi it will connect.")
+        ? ("The web is working but nothing will open on port " + cfg.port + ". "
+         + "Either this network is not carrying that port, or it is too slow to "
+         + "finish the handshake. It keeps retrying on its own. If it does not "
+         + "come back, try Wi-Fi or another network.")
         : "No internet on this device at the moment.");
       diagnosing = false;
     });
