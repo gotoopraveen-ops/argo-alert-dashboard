@@ -598,8 +598,14 @@ function render(){
   $("barEmergency").disabled = !online;
   lastSeenAt = dev.seenAt || 0;
   applyLabels();
+  /* A panel that came up for an ordinary reason says nothing. One that crashed,
+     browned out or was caught by the watchdog says so here, because that is the
+     only place anyone is looking when it happens. */
+  var reset = dev.config && dev.config.reset;
+  var odd = reset && reset !== "power on" && reset !== "software restart";
   $("deviceLabel").textContent = labels().panel +
-    (dev.state ? " · firmware " + dev.state.fw : "");
+    (dev.state ? " · firmware " + dev.state.fw : "") +
+    (odd ? " · last start: " + reset : "");
 
   var st = dev.state, conf = dev.config;
   if (!st) return;
