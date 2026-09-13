@@ -332,6 +332,7 @@ function credentialsFromLink(){
 
   var parts = new URLSearchParams(raw);
   if (!parts.get("u")) return null;
+  arrivedFromApp = true;
 
   var found = {
     user: parts.get("u") || "",
@@ -367,6 +368,11 @@ function $(id){ return document.getElementById(id); }
    and passed to this page in the link. Holding a key is what lets this page
    command that panel; without one it can still watch, because the panel has
    already published its state and no page can un-publish it. */
+/* True when this page was opened by the app rather than by somebody typing
+   broker details in by hand. The two deserve different behaviour: staff should
+   only ever see their own panels, a maintenance session needs to see the lot. */
+var arrivedFromApp = false;
+
 var panelKeys = {};
 try { panelKeys = JSON.parse(localStorage.getItem("argoPanelKeys") || "{}"); } catch(e){}
 
@@ -513,22 +519,30 @@ function onMessage(topic, payload){
   }
 
   refreshDeviceList();
-  if (!current && (!havePairedPanels() || panelKeys[id])) current = id;
+  if (!current && ((!havePairedPanels() && !arrivedFromApp) || panelKeys[id])) current = id;
   if (id === current) render();
 }
 
 function refreshDeviceList(){
   var ids = Object.keys(devices).sort();
+  var pick = $("devicePick");
 
-  // Once this browser holds any panel key, it belongs to somebody who has been
-  // to specific panels, and other customers' panels are none of their business.
-  // A bare dashboard with broker details typed in by hand still sees everything,
-  // because that is a maintenance tool, not a staff screen.
-  if (havePairedPanels()) {
+  // Anyone who came through the app, or who holds a key already, is staff
+  // looking at their own panels. Other customers' panels are none of their
+  // business, so they are not listed at all. A bare dashboard with broker
+  // details typed in by hand still sees everything, because that is a
+  // maintenance tool rather than a staff screen.
+  if (havePairedPanels() || arrivedFromApp) {
     ids = ids.filter(function(id){ return panelKeys[id]; });
     if (current && !panelKeys[current]) current = ids[0] || null;
+
+    if (!ids.length) {
+      $("deviceLabel").textContent =
+        "No paired panel. Open the panel once while on its own Wi-Fi.";
+      pick.classList.add("hide");
+      return;
+    }
   }
-  var pick = $("devicePick");
   if (ids.length < 2) { pick.classList.add("hide"); return; }
   if (pick.options.length !== ids.length) {
     pick.innerHTML = "";
