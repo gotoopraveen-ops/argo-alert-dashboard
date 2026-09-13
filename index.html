@@ -535,8 +535,23 @@ function onMessage(topic, payload){
   }
 
   refreshDeviceList();
-  if (!current) current = id;
+  chooseCurrent(id, dev);
   if (id === current) render();
+}
+
+/* Retained messages arrive in whatever order the broker feels like sending
+   them, so the first panel to speak can easily be one that was switched off
+   weeks ago. Open on a panel that is actually alive, and stop choosing the
+   moment somebody chooses for themselves. */
+var userPickedDevice = false;
+
+function chooseCurrent(id, dev){
+  if (userPickedDevice) return;
+  if (!current) { current = id; return; }
+  if (dev.status === "online" &&
+      devices[current] && devices[current].status !== "online") {
+    current = id;
+  }
 }
 
 function refreshDeviceList(){
@@ -1034,7 +1049,10 @@ if (location.search.indexOf("broker") >= 0){
   });
 })();
 $("connectBtn").addEventListener("click", connect);
-$("devicePick").addEventListener("change", function(){ current = this.value; cards = []; render(); });
+$("devicePick").addEventListener("change", function(){
+  userPickedDevice = true;
+  current = this.value; cards = []; render();
+});
 
 loadCfg();
 // Opened from the app, or returning to a browser that has been here before,
