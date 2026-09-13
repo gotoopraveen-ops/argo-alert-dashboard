@@ -147,22 +147,6 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
 
 <div class="wrap">
 
-  <div class="panel" id="loginPanel" style="display:none">
-    <h2>Sign in</h2>
-    <div class="row">
-      <label for="loginUser">Customer</label>
-      <input type="text" id="loginUser" autocapitalize="off" autocorrect="off" spellcheck="false">
-    </div>
-    <div class="row">
-      <label for="loginPass">Password</label>
-      <input type="password" id="loginPass">
-    </div>
-    <button class="act" id="loginBtn">SIGN IN</button>
-    <div class="help" id="loginMsg" style="text-align:center;min-height:14px;margin-top:9px"></div>
-    <div class="help">Use the details you were given. They are the same ones the
-      app uses, and they decide which panels this screen can ever see.</div>
-  </div>
-
   <div class="panel" id="cfgPanel" style="display:none">
     <h2>Broker connection</h2>
     <div class="row">
@@ -182,15 +166,7 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
       <div class="row"><label for="tenant">Tenant</label><input type="text" id="tenant" autocapitalize="off"></div>
       <div class="row"><label for="device">Device filter</label><input type="text" id="device" autocapitalize="off"></div>
     </div>
-    <div class="two">
-      <div class="row"><label for="panelId">Panel id</label><input type="text" id="panelId" autocapitalize="off" spellcheck="false"></div>
-      <div class="row"><label for="panelKey">Panel key</label><input type="text" id="panelKey" autocapitalize="off" spellcheck="false"></div>
-    </div>
-    <div class="help" style="margin-bottom:12px">Device filter accepts + to watch
-      every panel belonging to this tenant. The panel id and key are only needed
-      here if you did not arrive from the app: without a key this page can watch
-      a panel but not command it. Both are printed on the panel's own settings
-      screen and in its serial banner.</div>
+    <div class="help" style="margin-bottom:12px">Device filter accepts + to watch every panel belonging to this tenant.</div>
     <button class="act" id="connectBtn">CONNECT</button>
     <div class="help" id="cfgMsg" style="text-align:center;min-height:14px;margin-top:9px"></div>
   </div>
@@ -325,36 +301,11 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
     <h2>Activity</h2>
     <div class="feed" id="feed"><div class="help">Waiting for events.</div></div>
   </div>
-
-  <div class="panel" id="whoPanel" style="margin-top:12px;display:none">
-    <div class="help" id="whoText" style="margin:0 0 9px"></div>
-    <button class="act" id="signOutBtn" style="background:#132540;color:var(--ink)">
-      SIGN OUT</button>
-    <div class="help">Signing out also forgets which panels this browser was
-      trusted by, so it has to be paired again.</div>
-  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"></script>
 <script>
 "use strict";
-
-/* Customer logins, written by make_customer.py. No password is stored here:
-   each record is the broker credential encrypted with that customer's
-   password, so reading this page source gives an outsider a salt and a blob
-   and nothing else. */
-/* CUSTOMERS-BEGIN */
-var CUSTOMERS = [
-  {
-    "user": "demo",
-    "salt": "onzQk3uKWALBH0RLrJ2dYg==",
-    "iter": 150000,
-    "iv": "b7E8gbRYMMb3lxnnc03JKg==",
-    "blob": "XNtVOfyJz/eH/c90hUYGEz8SOpMhwmWlmZ0YuCaXZu2BVP1zVoFGE2XKyXe3nMXAQVous5LOsxyDC7f6b2nvE0kDk+8/8Ps4UtzIDYX2Whj03iCbbKFQxSzhdO0rNNE7mIA4gNn6ymt7ZbTgvXQvjVfBntpN07Luqkt5ROVQaGF7LYHqtSOQzRv5vmg=",
-    "tag": "31XcHSiufu4SXdQI2lYHdN2ifiPILbHvOpJgvPrX3Qk="
-  }
-];
-/* CUSTOMERS-END */
 
 var EV = {1:["Call","call"],2:["Reminder","rem"],3:["Accepted","ok"],4:["Cleared","ok"],5:["Timed out","ok"]};
 var DEFAULTS = {
@@ -373,7 +324,6 @@ function credentialsFromLink(){
 
   var parts = new URLSearchParams(raw);
   if (!parts.get("u")) return null;
-  arrivedFromApp = true;
 
   var found = {
     user: parts.get("u") || "",
@@ -382,15 +332,6 @@ function credentialsFromLink(){
     host: parts.get("h") || DEFAULTS.host
   };
 
-  // "k=panel-a4cf12:KEY,panel-93bb01:KEY" -- the panels this person has been
-  // physically present at. The broker credential gets anyone onto the broker;
-  // these are what say which panels they may actually command.
-  var keyList = parts.get("k") || "";
-  keyList.split(",").forEach(function(entry){
-    var colon = entry.indexOf(":");
-    if (colon > 0) rememberKey(entry.substring(0, colon), entry.substring(colon + 1));
-  });
-
   // Do not leave it sitting in the address bar or the back history.
   try { history.replaceState(null, "", location.pathname + location.search); }
   catch(e){ location.hash = ""; }
@@ -398,198 +339,11 @@ function credentialsFromLink(){
 }
 
 var client = null, cfg = null, current = null;
-var signedIn = false;
 var lastSeenAt = 0;      // when this device last said anything at all
 var devices = {};          // deviceId -> {state, config, status}
 var cards = [];
 
 function $(id){ return document.getElementById(id); }
-
-/* ------------------------------------------------------- panel keys ------ */
-/* One key per panel, learned by a phone that stood on that panel's own Wi-Fi
-   and passed to this page in the link. Holding a key is what lets this page
-   command that panel; without one it can still watch, because the panel has
-   already published its state and no page can un-publish it. */
-/* True when this page was opened by the app rather than by somebody typing
-   broker details in by hand. The two deserve different behaviour: staff should
-   only ever see their own panels, a maintenance session needs to see the lot. */
-var arrivedFromApp = false;
-
-var panelKeys = {};
-try { panelKeys = JSON.parse(localStorage.getItem("argoPanelKeys") || "{}"); } catch(e){}
-
-function rememberKey(device, key){
-  if (!device || !key) return;
-  panelKeys[device] = key;
-  try { localStorage.setItem("argoPanelKeys", JSON.stringify(panelKeys)); } catch(e){}
-}
-
-function havePairedPanels(){ return Object.keys(panelKeys).length > 0; }
-
-/* HMAC-SHA256 over "<counter>|<command>", truncated to 16 bytes of hex, which
-   is what the panel recomputes. The key itself never goes near the broker, so
-   reading the command topic teaches an eavesdropper nothing reusable, and the
-   counter stops them replaying what they captured. */
-function signCommand(key, data){
-  var bytes = new TextEncoder().encode(data);
-  return crypto.subtle.importKey("raw", new TextEncoder().encode(key),
-                                 {name:"HMAC", hash:"SHA-256"}, false, ["sign"])
-    .then(function(k){ return crypto.subtle.sign("HMAC", k, bytes); })
-    .then(function(sig){
-      var out = "";
-      var view = new Uint8Array(sig);
-      for (var i = 0; i < 16; i++) out += ("0" + view[i].toString(16)).slice(-2);
-      return out;
-    });
-}
-
-/* Every command to a panel goes through here, so there is exactly one place
-   that can forget to sign one. */
-function publishCommand(device, payload){
-  var key = panelKeys[device];
-  if (!key || !client) return Promise.resolve(false);
-
-  var counter = String(Date.now());
-  return signCommand(key, counter + "|" + payload).then(function(sig){
-    client.publish("argo/" + cfg.tenant + "/" + device + "/cmd",
-                   counter + "|" + sig + "|" + payload, {qos: 1});
-    return true;
-  }).catch(function(){ return false; });
-}
-
-/* ----------------------------------------------------------------- login -- */
-/* The password is stretched with PBKDF2, then HMAC-SHA256 in counter mode is
-   the keystream and a second HMAC authenticates the ciphertext. Only what the
-   browser already has, matching the script that writes the records and the app
-   that reads them. */
-function b64bytes(text){
-  var binary = atob(text);
-  var out = new Uint8Array(binary.length);
-  for (var i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-}
-
-function hmacKey(raw){
-  return crypto.subtle.importKey("raw", raw, {name:"HMAC", hash:"SHA-256"},
-                                 false, ["sign"]);
-}
-
-function keystream(encKey, iv, length){
-  var blocks = [], block = 0;
-  function next(){
-    if (blocks.length * 32 >= length) {
-      var out = new Uint8Array(blocks.length * 32);
-      blocks.forEach(function(b, i){ out.set(new Uint8Array(b), i * 32); });
-      return Promise.resolve(out.subarray(0, length));
-    }
-    var input = new Uint8Array(iv.length + 4);
-    input.set(iv, 0);
-    new DataView(input.buffer).setUint32(iv.length, block++, false);
-    return crypto.subtle.sign("HMAC", encKey, input).then(function(mac){
-      blocks.push(mac);
-      return next();
-    });
-  }
-  return next();
-}
-
-function signIn(user, password){
-  var record = null;
-  CUSTOMERS.forEach(function(c){
-    if (c.user === String(user).trim().toLowerCase()) record = c;
-  });
-  if (!record) return Promise.reject(new Error("No such customer"));
-
-  var salt = b64bytes(record.salt);
-  var iv   = b64bytes(record.iv);
-  var blob = b64bytes(record.blob);
-  var tag  = b64bytes(record.tag);
-
-  return crypto.subtle.importKey("raw", new TextEncoder().encode(password),
-                                 {name:"PBKDF2"}, false, ["deriveBits"])
-    .then(function(base){
-      return crypto.subtle.deriveBits(
-        {name:"PBKDF2", salt: salt, iterations: record.iter, hash:"SHA-256"},
-        base, 512);
-    })
-    .then(function(bits){
-      var master = new Uint8Array(bits);
-      return Promise.all([hmacKey(master.slice(0, 32)), hmacKey(master.slice(32))]);
-    })
-    .then(function(keys){
-      return crypto.subtle.sign("HMAC", keys[1], joinBytes(iv, blob))
-        .then(function(mine){
-          if (!sameBytes(new Uint8Array(mine), tag)) {
-            throw new Error("Wrong password");
-          }
-          return keystream(keys[0], iv, blob.length);
-        });
-    })
-    .then(function(stream){
-      var plain = new Uint8Array(blob.length);
-      for (var i = 0; i < blob.length; i++) plain[i] = blob[i] ^ stream[i];
-      return JSON.parse(new TextDecoder().decode(plain));
-    });
-}
-
-function joinBytes(a, b){
-  var out = new Uint8Array(a.length + b.length);
-  out.set(a, 0); out.set(b, a.length);
-  return out;
-}
-
-/* Constant time, so a wrong password cannot be narrowed down by how long the
-   comparison took. */
-function sameBytes(a, b){
-  if (a.length !== b.length) return false;
-  var diff = 0;
-  for (var i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
-}
-
-function showLogin(note){
-  $("loginPanel").style.display = "block";
-  $("loginMsg").textContent = note || "";
-}
-
-$("loginBtn").addEventListener("click", function(){
-  var user = $("loginUser").value, pass = $("loginPass").value;
-  if (!user || !pass) { $("loginMsg").textContent = "Both fields, please."; return; }
-
-  $("loginMsg").textContent = "Checking...";
-  signIn(user, pass).then(function(account){
-    cfg = Object.assign({}, cfg, {
-      user: account.u, pass: account.p,
-      tenant: account.tenant, host: account.h || cfg.host
-    });
-    try { localStorage.setItem("argoBroker", JSON.stringify(cfg)); } catch(e){}
-    try { localStorage.setItem("argoUser", String(user).trim().toLowerCase()); } catch(e){}
-
-    // connect() rebuilds cfg from the broker form, so the form has to agree
-    // with what signing in just produced or the credential is wiped on its way
-    // to the broker.
-    $("host").value = cfg.host; $("user").value = cfg.user;
-    $("pass").value = cfg.pass; $("tenant").value = cfg.tenant;
-
-    $("whoPanel").style.display = "block";
-    $("whoText").textContent = "Signed in as " + String(user).trim().toLowerCase() + ".";
-    $("loginPanel").style.display = "none";
-    $("loginPass").value = "";
-    signedIn = true;
-    connect();
-  }).catch(function(e){
-    $("loginMsg").textContent = e.message || "Could not sign in";
-  });
-});
-
-function signOut(){
-  try {
-    localStorage.removeItem("argoBroker");
-    localStorage.removeItem("argoUser");
-    localStorage.removeItem("argoPanelKeys");
-  } catch(e){}
-  location.reload();
-}
 
 /* ------------------------------------------------------------- settings -- */
 function loadCfg(){
@@ -616,8 +370,6 @@ function saveCfg(){
   // Credentials stay in this browser. Stage two issues a per-user credential
   // from a backend instead of asking each viewer to type a shared one.
   try { localStorage.setItem("argoBroker", JSON.stringify(cfg)); } catch(e){}
-
-  rememberKey($("panelId").value.trim(), $("panelKey").value.trim());
 }
 
 /* ----------------------------------------------------------------- mqtt -- */
@@ -695,30 +447,13 @@ function onMessage(topic, payload){
   }
 
   refreshDeviceList();
-  if (!current && ((!havePairedPanels() && !arrivedFromApp) || panelKeys[id])) current = id;
+  if (!current) current = id;
   if (id === current) render();
 }
 
 function refreshDeviceList(){
   var ids = Object.keys(devices).sort();
   var pick = $("devicePick");
-
-  // Anyone who came through the app, or who holds a key already, is staff
-  // looking at their own panels. Other customers' panels are none of their
-  // business, so they are not listed at all. A bare dashboard with broker
-  // details typed in by hand still sees everything, because that is a
-  // maintenance tool rather than a staff screen.
-  if (havePairedPanels() || arrivedFromApp) {
-    ids = ids.filter(function(id){ return panelKeys[id]; });
-    if (current && !panelKeys[current]) current = ids[0] || null;
-
-    if (!ids.length) {
-      $("deviceLabel").textContent =
-        "No paired panel. Open the panel once while on its own Wi-Fi.";
-      pick.classList.add("hide");
-      return;
-    }
-  }
   if (ids.length < 2) { pick.classList.add("hide"); return; }
   if (pick.options.length !== ids.length) {
     pick.innerHTML = "";
@@ -1046,7 +781,8 @@ function saveSettingsToPanel(){
   }
 
   function push(key, value){
-    publishCommand(current, "cfg:" + key + "=" + value);
+    client.publish("argo/" + cfg.tenant + "/" + current + "/cmd",
+                   "cfg:" + key + "=" + value, {qos: 1});
     sent++;
   }
 
@@ -1173,7 +909,9 @@ $("sheetClear").addEventListener("click", function(){ sheetSend("clear"); });
 /* -------------------------------------------------------------- commands -- */
 function send(action, channel){
   if (!client || !current) return;
-  publishCommand(current, action + ":" + channel + ":web");
+  var actor = "web";
+  var topic = "argo/" + cfg.tenant + "/" + current + "/cmd";
+  client.publish(topic, action + ":" + channel + ":" + actor, {qos: 1});
 }
 
 /* -------------------------------------------------------------- handlers -- */
@@ -1204,34 +942,11 @@ if (location.search.indexOf("broker") >= 0){
 $("connectBtn").addEventListener("click", connect);
 $("devicePick").addEventListener("change", function(){ current = this.value; cards = []; render(); });
 
-$("signOutBtn").addEventListener("click", function(){
-  if (confirm("Sign out of this browser?")) signOut();
-});
-
 loadCfg();
-
-// Opened from the app, or returning to a browser that has signed in before,
-// there is nothing to ask for. Otherwise the sign-in screen appears. With no
-// customers configured yet the page falls back to the broker screen, so it is
-// never left with no way in at all.
-(function(){
-  var who = null;
-  try { who = localStorage.getItem("argoUser"); } catch(e){}
-
-  if (cfg.user) {
-    signedIn = true;
-    if (who) {
-      $("whoPanel").style.display = "block";
-      $("whoText").textContent = "Signed in as " + who + ".";
-    }
-    connect();
-  } else if (CUSTOMERS.length) {
-    showLogin();
-  } else {
-    $("cfgBtn").hidden = false;
-    $("cfgPanel").style.display = "block";
-  }
-})();
+// Opened from the app, or returning to a browser that has been here before,
+// there is nothing to ask for. Otherwise the broker screen appears.
+if (cfg.user) connect();
+else { $("cfgBtn").hidden = false; $("cfgPanel").style.display = "block"; }
 </script>
 </body>
 </html>
