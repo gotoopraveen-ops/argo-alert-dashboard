@@ -154,7 +154,7 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
     <div class="row">
       <label for="host">WebSocket host</label>
       <input type="text" id="host" autocapitalize="off" spellcheck="false">
-      <div class="help">Your HiveMQ cluster address. Browsers cannot speak raw MQTT, so this uses the secure WebSocket port, normally 8884 with the path /mqtt.</div>
+      <div class="help">Normally the relay, on port 443 with path /. Every network carries 443; the broker's own port is 8884 and many mobile networks drop it. To go direct, put the cluster address here with 8884 and /mqtt.</div>
     </div>
     <div class="two">
       <div class="row"><label for="port">Port</label><input type="number" id="port"></div>
@@ -310,9 +310,16 @@ input,select{width:100%;padding:10px;border:1px solid var(--line);border-radius:
 "use strict";
 
 var EV = {1:["Call","call"],2:["Reminder","rem"],3:["Accepted","ok"],4:["Cleared","ok"],5:["Timed out","ok"]};
+/* The broker is reached through a relay of ours on port 443 rather than
+   directly on 8884. Every network carries 443; many mobile networks drop 8884,
+   which made this page load and then have nothing to talk to. The relay is a
+   pipe and decides nothing, so the broker still says who may see what. To go
+   direct, put the cluster address on the Broker screen with 8884 and /mqtt. */
+var RELAY_HOST = "argo-relay.gotoopraveen.workers.dev";
+
 var DEFAULTS = {
-  host: "4942e1fa0c9342439e329bd9eed8d79b.s1.eu.hivemq.cloud",
-  port: 8884, path: "/mqtt", user: "", pass: "",
+  host: RELAY_HOST,
+  port: 443, path: "/", user: "", pass: "",
   tenant: "demo", device: "+"
 };
 
@@ -353,6 +360,15 @@ function loadCfg(){
   var saved = {};
   try { saved = JSON.parse(localStorage.getItem("argoBroker") || "{}"); } catch(e){}
   cfg = Object.assign({}, DEFAULTS, saved);
+
+  // Anybody who used this page before the relay existed has the broker's own
+  // address stored, and would go on failing on mobile data indefinitely without
+  // being told why. Move them across once, quietly.
+  if (/hivemq\.cloud$/.test(cfg.host)) {
+    cfg.host = DEFAULTS.host;
+    cfg.port = DEFAULTS.port;
+    cfg.path = DEFAULTS.path;
+  }
 
   // A credential handed over in the link wins over anything remembered here,
   // so reinstalling the app with new details always takes effect.
